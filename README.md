@@ -66,7 +66,7 @@ This game is a fan tribute. In it, Jimothy does what Jimothy does: scurries thro
 
 ## ✨ Features
 
-- **Procedural everything.** Jimothy, the cats, the trucks, the city, the food: all drawn with Canvas primitives. Every sound effect is a Web Audio synth.
+- **Procedural everything.** Jimothy, the cats, the trucks, the city, the food: all drawn with Canvas primitives. Every sound effect is a Web Audio synth: jump blips, a coin chime, a sad game-over tune, a meow when an alley cat shows up, and a soft two-tone siren that sweeps across the stereo field as the Animal Control truck drives past.
 - **The real Jimothy.** The sprite is modelled on the actual raccoon: round neckless body, hunched back, short ringed tail, long thin legs, pale brows and muzzle, and a bouncy scurry instead of a run.
 - **It's Ballard.** The Space Needle sits on the skyline, a BALLARD sign glows over a porch, and a soft Seattle drizzle falls in the foreground.
 - **Wholesome by design.** Cream paper, rounded type, little hearts when you eat, and a palette borrowed from a Pacific Northwest sunset instead of neon.

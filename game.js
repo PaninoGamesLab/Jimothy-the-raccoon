@@ -299,6 +299,121 @@
       this.tone({ freq: 660, type: 'square', dur: 0.08, gain: 0.15, delay: 0.08 });
       this.tone({ freq: 880, type: 'square', dur: 0.18, gain: 0.15, delay: 0.16 });
     }
+
+    /**
+     * A stereo panner feeding the master, when the browser has one.
+     * `from`/`to` are -1 (left) .. 1 (right); the pan glides between them.
+     */
+    panner(from, to, dur) {
+      const ctx = this.ctx;
+      if (!ctx.createStereoPanner) return this.master;
+      const p = ctx.createStereoPanner();
+      const t0 = ctx.currentTime;
+      p.pan.setValueAtTime(clamp(from, -1, 1), t0);
+      p.pan.linearRampToValueAtTime(clamp(to, -1, 1), t0 + dur);
+      p.connect(this.master);
+      return p;
+    }
+
+    /** An alley cat announcing itself: a sliding, slightly nasal "meow". */
+    meow(pan = 0.7) {
+      if (!this.ready) return;
+      const ctx = this.ctx;
+      const t0 = ctx.currentTime;
+      const pitch = 0.88 + Math.random() * 0.3;
+      const dur = 0.62;
+      const out = this.panner(pan, pan - 0.5, dur);
+
+      // Vocal cord: a sawtooth sliding "me-e-ow", softened by a formant-like filter
+      const osc = ctx.createOscillator();
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(560 * pitch, t0);
+      osc.frequency.linearRampToValueAtTime(840 * pitch, t0 + 0.14);
+      osc.frequency.setValueAtTime(840 * pitch, t0 + 0.24);
+      osc.frequency.exponentialRampToValueAtTime(400 * pitch, t0 + dur);
+
+      const filter = ctx.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.Q.value = 6;
+      filter.frequency.setValueAtTime(1500 * pitch, t0);
+      filter.frequency.linearRampToValueAtTime(2600 * pitch, t0 + 0.18);
+      filter.frequency.exponentialRampToValueAtTime(800 * pitch, t0 + dur);
+
+      // Linear tail so the "ow" stays audible as the pitch falls
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.linearRampToValueAtTime(0.16, t0 + 0.05);
+      g.gain.setValueAtTime(0.16, t0 + 0.24);
+      g.gain.linearRampToValueAtTime(0.1, t0 + 0.45);
+      g.gain.linearRampToValueAtTime(0.0001, t0 + dur);
+
+      // A quiet breathy layer an octave up gives the "e" vowel its brightness
+      const osc2 = ctx.createOscillator();
+      osc2.type = 'triangle';
+      osc2.frequency.setValueAtTime(1120 * pitch, t0);
+      osc2.frequency.linearRampToValueAtTime(1760 * pitch, t0 + 0.14);
+      osc2.frequency.exponentialRampToValueAtTime(760 * pitch, t0 + dur);
+      const g2 = ctx.createGain();
+      g2.gain.setValueAtTime(0.0001, t0);
+      g2.gain.linearRampToValueAtTime(0.04, t0 + 0.06);
+      g2.gain.linearRampToValueAtTime(0.0001, t0 + dur * 0.85);
+
+      osc.connect(filter).connect(g).connect(out);
+      osc2.connect(g2).connect(out);
+      osc.start(t0);
+      osc2.start(t0);
+      osc.stop(t0 + dur + 0.05);
+      osc2.stop(t0 + dur + 0.05);
+    }
+
+    /**
+     * The Animal Control truck's siren: a soft two-tone "wee-woo" that
+     * sweeps across the stereo field as the truck drives past.
+     */
+    siren(dur = 2, panFrom = 0.9, panTo = -0.6) {
+      if (!this.ready) return;
+      const ctx = this.ctx;
+      const t0 = ctx.currentTime;
+      const half = 0.26;
+      const cycles = clamp(Math.round(dur / (half * 2)), 2, 5);
+      const total = cycles * half * 2;
+      const out = this.panner(panFrom, panTo, total);
+
+      const osc = ctx.createOscillator();
+      osc.type = 'square';
+      for (let i = 0; i < cycles; i++) {
+        osc.frequency.setValueAtTime(698, t0 + i * half * 2);
+        osc.frequency.setValueAtTime(523, t0 + i * half * 2 + half);
+      }
+      const filter = ctx.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.value = 1800;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.linearRampToValueAtTime(0.07, t0 + 0.08);
+      g.gain.setValueAtTime(0.07, t0 + total - 0.3);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + total);
+
+      // A faint sub-harmonic makes it feel like it comes from a vehicle
+      const osc2 = ctx.createOscillator();
+      osc2.type = 'triangle';
+      for (let i = 0; i < cycles; i++) {
+        osc2.frequency.setValueAtTime(349, t0 + i * half * 2);
+        osc2.frequency.setValueAtTime(261.5, t0 + i * half * 2 + half);
+      }
+      const g2 = ctx.createGain();
+      g2.gain.setValueAtTime(0.0001, t0);
+      g2.gain.linearRampToValueAtTime(0.035, t0 + 0.08);
+      g2.gain.setValueAtTime(0.035, t0 + total - 0.3);
+      g2.gain.exponentialRampToValueAtTime(0.0001, t0 + total);
+
+      osc.connect(filter).connect(g).connect(out);
+      osc2.connect(g2).connect(out);
+      osc.start(t0);
+      osc2.start(t0);
+      osc.stop(t0 + total + 0.05);
+      osc2.stop(t0 + total + 0.05);
+    }
   }
 
   /* ========================================================================
@@ -1743,6 +1858,7 @@
       this.phase = Math.random() * Math.PI * 2;
       this.variant = Math.random();
       this.dead = false;
+      this.announced = false;
     }
 
     screenX(distance) {
@@ -2899,6 +3015,10 @@
           this.obstacles.splice(i, 1);
           continue;
         }
+        if (!o.announced && o.screenX(this.distance) < this.view.w + 20) {
+          o.announced = true;
+          this.announceObstacle(o);
+        }
         if (aabb(playerBox, o.hitbox(this.distance))) {
           this.gameOver();
           return;
@@ -2929,6 +3049,17 @@
         this.isNewRecord = true;
       }
       this.updateHud();
+    }
+
+    /** Sound cue the moment a cat or the Animal Control truck enters the screen. */
+    announceObstacle(o) {
+      if (o.type === 'CAT') {
+        this.audio.meow(0.7);
+      } else if (o.type === 'TRUCK') {
+        // Long enough for the truck to drive right across the screen
+        const crossing = (this.view.w + o.w) / (this.speed + o.ownSpeed);
+        this.audio.siren(crossing, 0.9, -0.6);
+      }
     }
 
     collect(c) {
