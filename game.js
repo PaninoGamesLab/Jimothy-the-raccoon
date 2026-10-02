@@ -959,7 +959,9 @@
     /** Tight, forgiving hitbox: covers the round body, not the fur tufts or legs' reach. */
     get hitbox() {
       if (this.sheet) {
-        return { x: this.x + this.w * 0.1, y: this.y + this.h * 0.12, w: this.w * 0.8, h: this.h * 0.88 };
+        // The fluffy coat and head poke past this box on purpose: a brush
+        // with fur should never count as a hit.
+        return { x: this.x + this.w * 0.19, y: this.y + this.h * 0.14, w: this.w * 0.62, h: this.h * 0.86 };
       }
       return { x: this.x + 12, y: this.y + 8, w: this.w - 26, h: this.h - 10 };
     }
