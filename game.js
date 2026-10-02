@@ -855,7 +855,479 @@
    * 'run' | 'jump' | 'fall' | 'dead' and t is the gait phase in [0, 1).
    */
   const JimothySprite = (() => {
-    return null; // replaced by the final illustration below
+    const host = {};
+    /* Jimothy the raccoon - procedural painterly Canvas sprite (candidate-1)
+       Origin (0,0) = ground under the body centre, +x right, y negative = up. Faces right. */
+    (function () {
+      'use strict';
+      var TAU = Math.PI * 2;
+
+      function mulberry32(a) {
+        return function () {
+          a |= 0; a = a + 0x6D2B79F5 | 0;
+          var t = Math.imul(a ^ a >>> 15, 1 | a);
+          t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+          return ((t ^ t >>> 14) >>> 0) / 4294967296;
+        };
+      }
+      function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
+
+      // ---- palette: grizzled grey (slightly warm) raccoon fur, dark -> pale ----
+      var RAMP = [[40, 37, 34], [57, 53, 49], [76, 71, 66], [96, 90, 84], [117, 110, 103], [139, 132, 124], [160, 153, 145], [181, 175, 167], [201, 196, 188], [221, 217, 210]];
+      var FURA = [], FURB = [];
+      for (var ci = 0; ci < RAMP.length; ci++) {
+        var c = RAMP[ci];
+        FURA.push('rgba(' + c[0] + ',' + c[1] + ',' + c[2] + ',0.66)');
+        FURB.push('rgba(' + (c[0] + 6) + ',' + (c[1] + 2) + ',' + (c[2] - 6) + ',0.66)'); // warmer twin
+      }
+      var WIDTHS = [0.7, 1.0, 1.35];
+      var LEG_UP = '#4a4541', LEG_LO = '#2f2c29', PAW = '#171514';
+      var WHITE = '#f1eee8', MASK = '#151312', NOSE = '#0e0d0c';
+
+      // ---- batched stroke renderer ----
+      function Batch() { this.keys = []; this.map = {}; }
+      Batch.prototype.add = function (x, y, x2, y2, color, w) {
+        var k = color + '|' + w;
+        var arr = this.map[k];
+        if (!arr) { arr = this.map[k] = [color, w]; this.keys.push(k); }
+        arr.push(x, y, x2, y2);
+      };
+      Batch.prototype.flush = function (ctx) {
+        for (var i = 0; i < this.keys.length; i++) {
+          var arr = this.map[this.keys[i]];
+          ctx.strokeStyle = arr[0]; ctx.lineWidth = arr[1];
+          ctx.beginPath();
+          for (var j = 2; j < arr.length; j += 4) { ctx.moveTo(arr[j], arr[j + 1]); ctx.lineTo(arr[j + 2], arr[j + 3]); }
+          ctx.stroke();
+        }
+        this.keys = []; this.map = {};
+      };
+
+      // ---- cubic bezier helpers: p = [x0,y0,x1,y1,x2,y2,x3,y3] ----
+      function bez(p, t) {
+        var u = 1 - t, a = u * u * u, b = 3 * u * u * t, c = 3 * u * t * t, d = t * t * t;
+        return [a * p[0] + b * p[2] + c * p[4] + d * p[6], a * p[1] + b * p[3] + c * p[5] + d * p[7]];
+      }
+      function bezD(p, t) {
+        var u = 1 - t;
+        return [3 * u * u * (p[2] - p[0]) + 6 * u * t * (p[4] - p[2]) + 3 * t * t * (p[6] - p[4]),
+                3 * u * u * (p[3] - p[1]) + 6 * u * t * (p[5] - p[3]) + 3 * t * t * (p[7] - p[5])];
+      }
+      function lerp(a, b, t) { return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]; }
+
+      // ---- body silhouette (body frame), starts at the nose, goes over the back ----
+      var BODY = [
+        [68, -56, 64, -66, 58, -78, 47, -83],    // nose -> top of head
+        [47, -83, 36, -88, 14, -96, -6, -95],    // head -> top of the hunched back
+        [-6, -95, -24, -94, -38, -84, -43, -72], // back -> tail base
+        [-43, -72, -48, -60, -46, -47, -40, -39], // rump
+        [-40, -39, -32, -31, -8, -29, 10, -32],  // belly
+        [10, -32, 26, -34, 38, -38, 47, -44],    // chest -> throat
+        [47, -44, 55, -48, 63, -48, 68, -56]     // chin -> nose
+      ];
+      var SEG_W = [0.11, 0.18, 0.12, 0.10, 0.17, 0.12, 0.08];
+      function pickSeg(rng) {
+        var r = rng(), acc = 0;
+        for (var i = 0; i < SEG_W.length; i++) { acc += SEG_W[i]; if (r < acc) return i; }
+        return SEG_W.length - 1;
+      }
+      function bodyPath(ctx) {
+        ctx.beginPath();
+        ctx.moveTo(BODY[0][0], BODY[0][1]);
+        for (var i = 0; i < BODY.length; i++) { var s = BODY[i]; ctx.bezierCurveTo(s[2], s[3], s[4], s[5], s[6], s[7]); }
+        ctx.closePath();
+      }
+
+      // local tone of the body coat, 0 = darkest (top of back) .. 1 = palest (belly/throat)
+      function tone(x, y) {
+        var v = (y + 95) / 64;
+        v = v * v * 0.6 + v * 0.4;
+        if (x > 40) v = v * 0.55 + 0.3;              // head: flatter mid grey
+        if (x > 30 && y > -52) v += 0.2;             // throat/chest pale
+        if (x < -20 && y < -60) v -= 0.08;           // rump top darker
+        return clamp(v, 0, 1);
+      }
+      function furColor(rng, idx) {
+        idx = clamp(Math.round(idx), 0, 9);
+        return (rng() < 0.35 ? FURB : FURA)[idx];
+      }
+      function bodyStrokeColor(x, y, rng) {
+        var v = tone(x, y);
+        var idx = v * 8 + (rng() - 0.5) * 2.6;
+        var g = rng();
+        if (g < 0.09) idx -= 2.5; else if (g < 0.16) idx += 2.2; // dark / pale guard hairs
+        return furColor(rng, idx);
+      }
+      function pickW(rng) { var r = rng(); return WIDTHS[r < 0.5 ? 0 : (r < 0.85 ? 1 : 2)]; }
+
+      // strokes sampled inside a rotated ellipse; direction = radial*ur + flow (local frame)
+      function furRegion(B, rng, cx, cy, rx, ry, rot, n, fx, fy, radial, lmin, lmax) {
+        var cr = Math.cos(rot), sr = Math.sin(rot);
+        for (var i = 0; i < n; i++) {
+          var a = rng() * TAU, r = Math.sqrt(rng());
+          var ux = Math.cos(a) * r, uy = Math.sin(a) * r;
+          var lx = ux * rx, ly = uy * ry;
+          var x = cx + lx * cr - ly * sr, y = cy + lx * sr + ly * cr;
+          var dx = ux * radial + fx, dy = uy * radial + fy;
+          var ddx = dx * cr - dy * sr, ddy = dx * sr + dy * cr;
+          var dl = Math.hypot(ddx, ddy) || 1;
+          var len = lmin + rng() * (lmax - lmin);
+          B.add(x, y, x + ddx / dl * len, y + ddy / dl * len, bodyStrokeColor(x, y, rng), pickW(rng));
+        }
+      }
+      // fluffy outline: strokes starting just inside the silhouette, pointing outward + flow
+      function edgeFluff(B, rng, n, inset, lmin, lmax, fx, fy) {
+        for (var i = 0; i < n; i++) {
+          var s = BODY[pickSeg(rng)], t = rng();
+          var p = bez(s, t), d = bezD(s, t); var dl = Math.hypot(d[0], d[1]) || 1;
+          var nx = -d[1] / dl, ny = d[0] / dl; // outward normal
+          var k = rng() * inset;
+          var x = p[0] - nx * k, y = p[1] - ny * k;
+          var ddx = nx + fx * (0.6 + rng() * 0.8), ddy = ny + fy * (0.6 + rng() * 0.8);
+          var l2 = Math.hypot(ddx, ddy) || 1;
+          var len = lmin + rng() * (lmax - lmin);
+          var col;
+          if (x > 46) { len *= 0.55; col = y > -57 ? (rng() < 0.6 ? WHITE : FURA[8]) : bodyStrokeColor(x, y, rng); }
+          else col = bodyStrokeColor(x, y, rng);
+          B.add(x, y, x + ddx / l2 * len, y + ddy / l2 * len, col, pickW(rng));
+        }
+      }
+
+      // ---- tail: bushy club with dark bands ----
+      var RINGS = [0.3, 0.46, 0.62, 0.78];
+      function ringAmt(t) {
+        var m = 0;
+        for (var i = 0; i < RINGS.length; i++) { var d = Math.abs(t - RINGS[i]); if (d < 0.05) m = 1; }
+        if (t > 0.92) m = 1;
+        return m;
+      }
+      function tailW(t) {
+        var w = 7 + 6 * Math.sin(Math.PI * (0.15 + 0.75 * t));
+        if (t > 0.8) w *= 1 - (t - 0.8) * 2;
+        return Math.max(w, 3);
+      }
+      function drawTail(ctx, B, rng, P) {
+        var N = 24, prev = bez(P, 0);
+        for (var i = 1; i <= N; i++) {
+          var t = i / N, p = bez(P, t), tm = (t + (i - 1) / N) / 2;
+          ctx.strokeStyle = ringAmt(tm) > 0.5 ? '#232120' : (tm < 0.18 ? '#847d75' : '#bbb5ab');
+          ctx.lineWidth = tailW(tm) * 2;
+          ctx.beginPath(); ctx.moveTo(prev[0], prev[1]); ctx.lineTo(p[0], p[1]); ctx.stroke();
+          prev = p;
+        }
+        for (i = 0; i < 230; i++) {
+          t = rng(); var d = rng() * 2 - 1; d = d * Math.sqrt(Math.abs(d)) * (d < 0 ? -1 : 1) * (d < 0 ? -1 : 1);
+          p = bez(P, t); var dv = bezD(P, t); var dl = Math.hypot(dv[0], dv[1]) || 1;
+          var tx = dv[0] / dl, ty = dv[1] / dl, nx = -ty, ny = tx;
+          var w = tailW(t);
+          var x = p[0] + nx * d * w, y = p[1] + ny * d * w;
+          var sgn = d < 0 ? -1 : 1, ad = Math.abs(d);
+          var ddx = nx * sgn * (0.6 + ad) + tx * 0.45, ddy = ny * sgn * (0.6 + ad) + ty * 0.45;
+          var l2 = Math.hypot(ddx, ddy) || 1;
+          var len = 2 + rng() * 3;
+          var ring = ringAmt(t);
+          var idx;
+          if (ring > 0.5) idx = rng() * 1.8 + (rng() < 0.1 ? 2.5 : 0);
+          else idx = 7.2 + (rng() - 0.5) * 2.2 + (ny * sgn < 0 ? -0.9 : 0.5) + (rng() < 0.08 ? -3 : 0);
+          if (t < 0.18) idx -= 1.5 * (1 - t / 0.18);
+          B.add(x, y, x + ddx / l2 * len, y + ddy / l2 * len, furColor(rng, idx), pickW(rng));
+        }
+        B.flush(ctx);
+      }
+
+      // ---- legs ----
+      function ik(hip, foot, L1, L2, bend) {
+        var dx = foot[0] - hip[0], dy = foot[1] - hip[1]; var d = Math.hypot(dx, dy);
+        var maxd = L1 + L2 - 0.3;
+        if (d > maxd) { dx *= maxd / d; dy *= maxd / d; d = maxd; foot = [hip[0] + dx, hip[1] + dy]; }
+        if (d < 0.001) { d = 0.001; dx = 0; dy = 0.001; }
+        var a = (d * d + L1 * L1 - L2 * L2) / (2 * d);
+        var h = Math.sqrt(Math.max(0, L1 * L1 - a * a));
+        var ux = dx / d, uy = dy / d;
+        return { j: [hip[0] + ux * a - uy * h * bend, hip[1] + uy * a + ux * h * bend], foot: foot };
+      }
+      function line(ctx, a, b, w, c) {
+        ctx.strokeStyle = c; ctx.lineWidth = w;
+        ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
+      }
+      function taper(ctx, a, b, w0, w1, c0, c1, n) {
+        for (var i = 0; i < n; i++) {
+          var p = lerp(a, b, i / n), q = lerp(a, b, (i + 1) / n), f = (i + 0.5) / n;
+          line(ctx, p, q, w0 + (w1 - w0) * f, f < 0.5 ? c0 : c1);
+        }
+      }
+      function limbFur(B, rng, a, b, w0, w1, n, idx0, idx1, far) {
+        var dx = b[0] - a[0], dy = b[1] - a[1]; var dl = Math.hypot(dx, dy) || 1;
+        var ux = dx / dl, uy = dy / dl, nx = -uy, ny = ux;
+        for (var i = 0; i < n; i++) {
+          var t = rng(), s = rng() * 2 - 1;
+          var w = (w0 + (w1 - w0) * t) * 0.5;
+          var p = lerp(a, b, t);
+          var x = p[0] + nx * s * w, y = p[1] + ny * s * w;
+          var ddx = ux * 0.85 + nx * s * 0.9, ddy = uy * 0.85 + ny * s * 0.9; var l2 = Math.hypot(ddx, ddy) || 1;
+          var len = 2.5 + rng() * 3;
+          var idx = idx0 + (idx1 - idx0) * t + (rng() - 0.5) * 2.2 + (s < -0.3 ? 0.8 : 0) - (far ? 0.8 : 0);
+          B.add(x, y, x + ddx / l2 * len, y + ddy / l2 * len, furColor(rng, idx), WIDTHS[rng() < 0.6 ? 0 : 1]);
+        }
+      }
+
+      // L: { hip, foot, joint?, kind:'hind'|'front', far, bend }
+      function drawLeg(ctx, B, rng, L) {
+        var hind = L.kind === 'hind';
+        var L1 = hind ? 30 : 29, L2 = hind ? 26 : 29;
+        var j, foot = L.foot;
+        if (L.joint) j = L.joint; else { var r = ik(L.hip, L.foot, L1, L2, L.bend === undefined ? 1 : L.bend); j = r.j; foot = r.foot; }
+        var far = !!L.far;
+        var up = far ? 'rgba(59,55,51,0.9)' : 'rgba(78,73,68,0.88)', up2 = far ? '#33302c' : '#3f3b37', lo = far ? '#252321' : LEG_LO, paw = far ? '#121110' : PAW;
+        var wUp = hind ? 18 : 12, wMid = hind ? 9 : 6.8, wLo = hind ? 7 : 5.4;
+        taper(ctx, L.hip, j, wUp, wMid, up, up2, 4);
+        taper(ctx, j, foot, wLo, wLo * 0.85, lo, lo, 2);
+        limbFur(B, rng, L.hip, j, wUp, wMid, hind ? 48 : 30, 4.0, 1.6, far);
+        limbFur(B, rng, j, foot, wLo, wLo * 0.85, hind ? 12 : 9, 1.2, 0.6, far);
+        B.flush(ctx);
+        // paw
+        var lifted = foot[1] < -3;
+        var k, a;
+        if (hind) {
+          var fd = lifted ? [0.7, 0.71] : [1, 0];
+          var toe = [foot[0] + fd[0] * 10, foot[1] + fd[1] * 10];
+          line(ctx, foot, toe, 5, paw);
+          for (k = -2; k <= 2; k++) {
+            a = Math.atan2(fd[1], fd[0]) + k * 0.2;
+            line(ctx, [toe[0] - fd[0] * 2, toe[1] - fd[1] * 2], [toe[0] + Math.cos(a) * 5.5, toe[1] + Math.sin(a) * 5.5], 1.5, paw);
+          }
+        } else if (lifted) {
+          line(ctx, foot, [foot[0] + 1.5, foot[1] + 3.5], 4.4, paw);
+          for (k = 0; k < 5; k++) {
+            a = Math.PI * 0.5 + (k - 2) * 0.26 + 0.12;
+            line(ctx, [foot[0] + 1.5, foot[1] + 3], [foot[0] + 1.5 + Math.cos(a) * 6, foot[1] + 3 + Math.sin(a) * 6], 1.4, paw);
+          }
+        } else {
+          var palm = [foot[0] + 4, foot[1]];
+          line(ctx, foot, palm, 4.4, paw);
+          for (k = 0; k < 5; k++) {
+            a = (k - 2.2) * 0.25;
+            line(ctx, palm, [palm[0] + Math.cos(a) * 6, palm[1] + Math.sin(a) * 6 + 0.5], 1.4, paw);
+          }
+        }
+      }
+
+      function gaitFoot(phase, cx, stride, lift) {
+        phase -= Math.floor(phase);
+        if (phase < 0.5) { var s = phase / 0.5; return [cx + stride / 2 - stride * s, 0]; }
+        var s2 = (phase - 0.5) / 0.5;
+        return [cx - stride / 2 + stride * s2, -lift * Math.sin(Math.PI * s2)];
+      }
+
+      // ---- ears: rounded triangle, grey with dark inside and a pale rim ----
+      function drawEar(ctx, cx, cy, r, tilt) {
+        ctx.save();
+        ctx.translate(cx, cy); ctx.rotate(tilt);
+        ctx.beginPath();
+        ctx.moveTo(-r, r * 0.6);
+        ctx.quadraticCurveTo(-r * 1.1, -r * 0.9, -r * 0.2, -r * 1.25);
+        ctx.quadraticCurveTo(r * 0.5, -r * 1.3, r * 0.95, r * 0.1);
+        ctx.quadraticCurveTo(r * 1.0, r * 0.5, r * 0.8, r * 0.7);
+        ctx.closePath();
+        ctx.fillStyle = '#7b746b'; ctx.fill();
+        ctx.strokeStyle = '#d6d1c7'; ctx.lineWidth = 1.0; ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(-r * 0.5, r * 0.55);
+        ctx.quadraticCurveTo(-r * 0.6, -r * 0.5, -r * 0.1, -r * 0.75);
+        ctx.quadraticCurveTo(r * 0.35, -r * 0.7, r * 0.55, r * 0.1);
+        ctx.quadraticCurveTo(r * 0.6, r * 0.5, r * 0.45, r * 0.6);
+        ctx.closePath();
+        ctx.fillStyle = '#272422'; ctx.fill();
+        ctx.restore();
+      }
+
+      // ---- face ----
+      function drawFace(ctx, B, rng, pose, time) {
+        // grey cheek behind the mask, slightly darker
+        ctx.fillStyle = 'rgba(96,90,84,0.6)';
+        ctx.beginPath(); ctx.ellipse(41, -62, 8, 9, 0.3, 0, TAU); ctx.fill();
+        // black mask around the eye (wide at the cheek, pointed toward the nose)
+        ctx.fillStyle = MASK;
+        ctx.beginPath();
+        ctx.moveTo(36, -66);
+        ctx.quadraticCurveTo(44, -71, 56, -69);
+        ctx.quadraticCurveTo(61, -67, 63, -62);
+        ctx.quadraticCurveTo(63, -58, 59, -56.5);
+        ctx.quadraticCurveTo(50, -55, 42, -58);
+        ctx.quadraticCurveTo(37, -61, 36, -66);
+        ctx.closePath(); ctx.fill();
+        // white brow: crescent over the top and front of the mask
+        ctx.strokeStyle = WHITE; ctx.lineWidth = 3.4;
+        ctx.beginPath(); ctx.moveTo(40, -73); ctx.quadraticCurveTo(52, -74.5, 60.5, -68.5); ctx.quadraticCurveTo(64.5, -65, 65, -60.5); ctx.stroke();
+        // grey nose bridge stripe (forehead to nose)
+        ctx.strokeStyle = '#5b5650'; ctx.lineWidth = 2.6;
+        ctx.beginPath(); ctx.moveTo(50, -80); ctx.quadraticCurveTo(60, -72, 67, -59); ctx.stroke();
+        // white muzzle / cheek patch below the mask
+        ctx.fillStyle = WHITE;
+        ctx.beginPath();
+        ctx.moveTo(45, -56.5);
+        ctx.quadraticCurveTo(54, -54.5, 62, -56.5);
+        ctx.quadraticCurveTo(68, -55, 66.5, -51);
+        ctx.quadraticCurveTo(63, -47, 55, -47);
+        ctx.quadraticCurveTo(48, -48.5, 45, -56.5);
+        ctx.closePath(); ctx.fill();
+        // soft fur feathering on the face
+        for (var i = 0; i < 50; i++) {
+          var a = rng() * TAU, r = 0.75 + rng() * 0.35;
+          var x = 53 + Math.cos(a) * 11 * r, y = -62 + Math.sin(a) * 9 * r;
+          var len = 1.5 + rng() * 2;
+          var c = y < -68 ? (rng() < 0.4 ? WHITE : FURA[5]) : (y > -57 ? WHITE : 'rgba(21,19,18,0.8)');
+          if (x < 42) c = FURA[4 + Math.floor(rng() * 2)];
+          B.add(x, y, x + Math.cos(a) * len, y + Math.sin(a) * len, c, 0.9);
+        }
+        B.flush(ctx);
+        // nose
+        ctx.fillStyle = NOSE;
+        ctx.beginPath(); ctx.ellipse(67.6, -56.6, 3.7, 3.1, -0.3, 0, TAU); ctx.fill();
+        ctx.fillStyle = 'rgba(255,255,255,0.55)';
+        ctx.beginPath(); ctx.ellipse(66.6, -58.2, 1.2, 0.7, -0.4, 0, TAU); ctx.fill();
+        // mouth
+        ctx.strokeStyle = '#3a3532'; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(66, -53); ctx.quadraticCurveTo(64, -49.5, 58.5, -50.5); ctx.stroke();
+        // whisker dots
+        ctx.fillStyle = '#8a847b';
+        ctx.beginPath(); ctx.arc(60, -54, 0.6, 0, TAU); ctx.arc(62.5, -53, 0.6, 0, TAU); ctx.arc(60.5, -51.8, 0.6, 0, TAU); ctx.fill();
+        // eye
+        var ex = 54, ey = -63;
+        if (pose === 'dead') {
+          ctx.strokeStyle = WHITE; ctx.lineWidth = 1.8;
+          ctx.beginPath(); ctx.moveTo(ex - 3, ey - 3); ctx.lineTo(ex + 3, ey + 3); ctx.moveTo(ex + 3, ey - 3); ctx.lineTo(ex - 3, ey + 3); ctx.stroke();
+          ctx.fillStyle = '#e27b8c';
+          ctx.beginPath(); ctx.ellipse(61.5, -46.5, 2.3, 4.2, 0.25, 0, TAU); ctx.fill();
+          ctx.strokeStyle = '#c75d70'; ctx.lineWidth = 0.8;
+          ctx.beginPath(); ctx.moveTo(61.8, -49); ctx.lineTo(62.3, -44); ctx.stroke();
+        } else {
+          var blink = (time % 3.7) < 0.11;
+          if (blink) {
+            ctx.strokeStyle = '#2a2622'; ctx.lineWidth = 1.5;
+            ctx.beginPath(); ctx.moveTo(ex - 2.5, ey + 0.5); ctx.quadraticCurveTo(ex, ey + 1.6, ex + 2.5, ey + 0.3); ctx.stroke();
+          } else {
+            ctx.fillStyle = '#2d2824';
+            ctx.beginPath(); ctx.ellipse(ex, ey, 3.3, 3, 0, 0, TAU); ctx.fill();
+            ctx.fillStyle = '#040404';
+            ctx.beginPath(); ctx.ellipse(ex + 0.2, ey, 2.6, 2.5, 0, 0, TAU); ctx.fill();
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath(); ctx.arc(ex + 0.9, ey - 1.1, 1.15, 0, TAU); ctx.fill();
+            ctx.fillStyle = 'rgba(255,255,255,0.5)';
+            ctx.beginPath(); ctx.arc(ex - 0.9, ey + 1.2, 0.55, 0, TAU); ctx.fill();
+          }
+        }
+      }
+
+      // ---- pose setup ----
+      var HIP_N = [-26, -53], HIP_F = [-32, -55], SH_N = [36, -56], SH_F = [30, -58];
+      function poseParams(pose, t) {
+        var P = { rot: 0, dx: 0, dy: 0, px: 0, py: -55, legs: [], ears: { near: [45, -82, 6.2, 0.28], far: [36.5, -84, 5.3, 0.0] } };
+        if (pose === 'run') {
+          P.dy = Math.sin(t * TAU * 2) * 1.2;
+          P.rot = Math.sin(t * TAU * 2 + 1) * 0.015;
+          P.tail = [-40, -70, -58, -92, -82, -80, -70, -50];
+          P.legs = [
+            { kind: 'front', hip: SH_F, foot: gaitFoot(t + 0.5, 28, 30, 12), far: true },
+            { kind: 'hind', hip: HIP_F, foot: gaitFoot(t, -28, 34, 10), far: true },
+            { kind: 'hind', hip: HIP_N, foot: gaitFoot(t + 0.5, -26, 34, 10) },
+            { kind: 'front', hip: SH_N, foot: gaitFoot(t, 30, 30, 13) }
+          ];
+        } else if (pose === 'jump') {
+          P.rot = -0.16; P.dy = -2;
+          P.tail = [-40, -70, -54, -98, -78, -94, -72, -68];
+          P.ears = { near: [41, -84, 6.5, 0.95], far: [33, -85, 5.5, 0.8] };
+          P.legs = [
+            { kind: 'front', hip: SH_F, joint: [20, -38], foot: [31, -32], far: true },
+            { kind: 'hind', hip: HIP_F, foot: [-66, -30], far: true },
+            { kind: 'hind', hip: HIP_N, foot: [-62, -22] },
+            { kind: 'front', hip: SH_N, joint: [25, -34], foot: [38, -29] }
+          ];
+        } else if (pose === 'fall') {
+          P.rot = 0.13; P.dy = -1;
+          P.tail = [-40, -70, -58, -92, -82, -82, -70, -56];
+          P.ears = { near: [44, -83, 6.5, 0.5], far: [35.5, -84.5, 5.5, 0.35] };
+          P.legs = [
+            { kind: 'front', hip: SH_F, foot: [44, -18], far: true },
+            { kind: 'hind', hip: HIP_F, foot: [-16, -20], far: true },
+            { kind: 'hind', hip: HIP_N, foot: [-6, -15] },
+            { kind: 'front', hip: SH_N, foot: [53, -13] }
+          ];
+        } else { // dead: flopped flat, limbs sprawled on the ground
+          P.rot = 0.08; P.dy = 20;
+          P.tail = [-40, -70, -60, -74, -80, -60, -82, -44];
+          P.ears = { near: [44, -82, 6.5, 0.75], far: [35, -84, 5.5, -0.55] };
+          P.legs = [
+            { kind: 'front', hip: SH_F, joint: [44, -44], foot: [58, -36], far: true },
+            { kind: 'hind', hip: HIP_F, joint: [-50, -44], foot: [-66, -36], far: true },
+            { kind: 'hind', hip: HIP_N, joint: [-46, -36], foot: [-62, -32] },
+            { kind: 'front', hip: SH_N, joint: [48, -38], foot: [62, -33] }
+          ];
+        }
+        return P;
+      }
+
+      function draw(ctx, state) {
+        ctx.save();
+        try {
+          ctx.globalAlpha = 1; ctx.shadowBlur = 0; ctx.shadowColor = 'rgba(0,0,0,0)';
+          ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+          if (ctx.setLineDash) ctx.setLineDash([]);
+          var rng = mulberry32(20240613);
+          var B = new Batch();
+          var pose = (state && state.pose) || 'run';
+          var t = (state && typeof state.t === 'number') ? state.t : 0;
+          var time = (state && typeof state.time === 'number') ? state.time : 0;
+          var P = poseParams(pose, t);
+
+          ctx.translate(P.dx, P.dy);
+          ctx.translate(P.px, P.py); ctx.rotate(P.rot); ctx.translate(-P.px, -P.py);
+
+          // 1. tail (behind everything)
+          drawTail(ctx, B, rng, P.tail);
+          // 2. far legs + far ear
+          drawLeg(ctx, B, rng, P.legs[0]);
+          drawLeg(ctx, B, rng, P.legs[1]);
+          drawEar(ctx, P.ears.far[0], P.ears.far[1], P.ears.far[2], P.ears.far[3]);
+          // 3. body: base fill + soft shading + fur
+          ctx.fillStyle = '#8b847b'; bodyPath(ctx); ctx.fill();
+          ctx.save(); bodyPath(ctx); ctx.clip();
+          var g = ctx.createRadialGradient(-6, -104, 4, -6, -104, 70);
+          g.addColorStop(0, 'rgba(48,44,41,0.95)'); g.addColorStop(0.55, 'rgba(70,65,60,0.55)'); g.addColorStop(1, 'rgba(90,84,78,0)');
+          ctx.fillStyle = g; ctx.fillRect(-60, -110, 130, 90);
+          g = ctx.createRadialGradient(2, -26, 2, 2, -26, 42);
+          g.addColorStop(0, 'rgba(200,195,187,0.9)'); g.addColorStop(0.5, 'rgba(180,174,166,0.5)'); g.addColorStop(1, 'rgba(160,153,145,0)');
+          ctx.fillStyle = g; ctx.fillRect(-60, -110, 130, 90);
+          g = ctx.createRadialGradient(48, -44, 1, 48, -44, 22);
+          g.addColorStop(0, 'rgba(214,210,203,0.9)'); g.addColorStop(1, 'rgba(200,195,187,0)');
+          ctx.fillStyle = g; ctx.fillRect(20, -70, 60, 40);
+          ctx.fillStyle = 'rgba(128,121,113,0.5)'; ctx.beginPath(); ctx.ellipse(52, -70, 14, 12, 0.4, 0, TAU); ctx.fill();
+          ctx.restore();
+          // interior fur (flow: from head toward tail and down)
+          furRegion(B, rng, -14, -62, 33, 31, 0, 330, -0.85, 0.5, 0.5, 2.5, 5.5);
+          furRegion(B, rng, 18, -60, 27, 27, 0, 220, -0.8, 0.55, 0.5, 2.5, 5.5);
+          furRegion(B, rng, 50, -68, 16, 14, 0.35, 70, -0.3, 0.45, 0.9, 1.5, 3.5);
+          edgeFluff(B, rng, 260, 2.5, 2.5, 5.5, -0.5, 0.4);
+          B.flush(ctx);
+          // 4. near legs
+          drawLeg(ctx, B, rng, P.legs[2]);
+          drawLeg(ctx, B, rng, P.legs[3]);
+          // 5. face + near ear
+          drawEar(ctx, P.ears.near[0], P.ears.near[1], P.ears.near[2], P.ears.near[3]);
+          drawFace(ctx, B, rng, pose, time);
+        } catch (e) {
+          // never throw into the game loop
+        } finally {
+          ctx.restore();
+        }
+      }
+
+      host.JimothySprite = {
+        bounds: { left: -47, right: 70, top: -96 },
+        draw: draw
+      };
+    })();
+    return host.JimothySprite;
   })();
 
   /** Pre-renders a sprite into offscreen canvases so each frame is one drawImage. */
