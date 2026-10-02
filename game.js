@@ -48,15 +48,16 @@
   });
 
   const PALETTE = Object.freeze({
-    furLight: '#9c9cae',
-    fur: '#8a8a9a',
-    furDark: '#5a5a6e',
-    furDarker: '#3b3b4b',
-    mask: '#1a1a26',
-    eye: '#f4f4ff',
-    pupil: '#101018',
-    belly: '#b8b8c8',
-    nose: '#15151d',
+    // Jimothy's real coat: brownish grey, dark saddle, pale brows and muzzle
+    furLight: '#a39d95',
+    fur: '#857f78',
+    furDark: '#5a554f',
+    furDarker: '#38342f',
+    mask: '#1d1b1a',
+    eye: '#ece8e0',
+    pupil: '#2a2622',
+    belly: '#b3ada4',
+    nose: '#141210',
     cyan: '#00f0ff',
     pink: '#ff2fa8',
     purple: '#9d4dff',
@@ -264,10 +265,24 @@
       this.W = W;
       this.H = H;
       this.tileW = 1920;
-      this.layers = [
-        { factor: 0.12, canvas: this.buildSkyline(seededRandom(1337)) },
-        { factor: 0.35, canvas: this.buildHouses(seededRandom(4242)) },
-      ];
+      this.buildLayers();
+      // The neon signs use the pixel font; rebuild the tiles once it has loaded.
+      if (document.fonts && document.fonts.ready) {
+        document.fonts.ready.then(() => this.buildLayers()).catch(() => {});
+      }
+
+      // Seattle drizzle
+      this.rain = [];
+      for (let i = 0; i < 70; i++) {
+        this.rain.push({
+          x: Math.random() * W,
+          y: Math.random() * H,
+          len: 10 + Math.random() * 14,
+          speed: 520 + Math.random() * 260,
+          depth: 0.4 + Math.random() * 0.6,
+        });
+      }
+
       this.stars = [];
       const rng = seededRandom(99);
       for (let i = 0; i < 90; i++) {
@@ -281,11 +296,100 @@
       }
     }
 
+    buildLayers() {
+      this.layers = [
+        { factor: 0.12, canvas: this.buildSkyline(seededRandom(1337)) },
+        { factor: 0.35, canvas: this.buildHouses(seededRandom(4242)) },
+      ];
+    }
+
     makeTile() {
       const c = document.createElement('canvas');
       c.width = this.tileW;
       c.height = this.H;
       return c;
+    }
+
+    /** The Space Needle: Jimothy's skyline is unmistakably Seattle. */
+    drawSpaceNeedle(ctx, x, baseY) {
+      const h = 290;
+      const top = baseY - h;
+      ctx.fillStyle = '#1f1b44';
+      // Three legs sweeping out to the base
+      ctx.beginPath();
+      ctx.moveTo(x - 34, baseY);
+      ctx.lineTo(x - 7, top + 70);
+      ctx.lineTo(x + 7, top + 70);
+      ctx.lineTo(x + 34, baseY);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = '#2a2558';
+      ctx.fillRect(x - 3, top + 70, 6, h - 70);
+      // Halo ring under the saucer
+      ctx.strokeStyle = '#2a2558';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.ellipse(x, top + 72, 30, 6, 0, 0, Math.PI * 2);
+      ctx.stroke();
+      // Saucer
+      ctx.fillStyle = '#2f2a60';
+      ctx.beginPath();
+      ctx.moveTo(x - 44, top + 56);
+      ctx.lineTo(x + 44, top + 56);
+      ctx.lineTo(x + 24, top + 72);
+      ctx.lineTo(x - 24, top + 72);
+      ctx.closePath();
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(x, top + 50, 44, 9, 0, 0, Math.PI * 2);
+      ctx.fill();
+      // Observation deck lights
+      ctx.save();
+      ctx.fillStyle = PALETTE.yellow;
+      ctx.shadowColor = PALETTE.yellow;
+      ctx.shadowBlur = 8;
+      for (let i = -3; i <= 3; i++) ctx.fillRect(x + i * 11 - 2, top + 60, 4, 4);
+      ctx.fillStyle = PALETTE.cyan;
+      ctx.shadowColor = PALETTE.cyan;
+      ctx.fillRect(x - 40, top + 50, 80, 1.5);
+      ctx.restore();
+      // Spire with aircraft light
+      ctx.fillStyle = '#2a2558';
+      ctx.fillRect(x - 1.5, top, 3, 44);
+      ctx.save();
+      ctx.fillStyle = PALETTE.danger;
+      ctx.shadowColor = PALETTE.danger;
+      ctx.shadowBlur = 10;
+      ctx.fillRect(x - 2.5, top - 4, 5, 5);
+      ctx.restore();
+    }
+
+    updateRain(dt, scroll) {
+      const { W, H } = this;
+      for (const d of this.rain) {
+        d.y += d.speed * d.depth * dt;
+        d.x -= (90 + scroll * 0.25) * d.depth * dt;
+        if (d.y > H + 20) {
+          d.y = -20 - Math.random() * 40;
+          d.x = Math.random() * (W + 200);
+        }
+        if (d.x < -20) d.x += W + 200;
+      }
+    }
+
+    drawRain(ctx) {
+      ctx.save();
+      ctx.lineCap = 'round';
+      for (const d of this.rain) {
+        ctx.globalAlpha = 0.1 + d.depth * 0.18;
+        ctx.lineWidth = d.depth * 1.4;
+        ctx.strokeStyle = '#bfe9ff';
+        ctx.beginPath();
+        ctx.moveTo(d.x, d.y);
+        ctx.lineTo(d.x - d.len * 0.18, d.y + d.len);
+        ctx.stroke();
+      }
+      ctx.restore();
     }
 
     /** Distant skyline: tall dark towers with glowing window grids. */
@@ -350,6 +454,8 @@
         x += bw + Math.floor(rng() * 14);
       }
 
+      this.drawSpaceNeedle(ctx, 1240, horizon);
+
       // Ground fog line that hides the base of the skyline
       const fog = ctx.createLinearGradient(0, horizon - 50, 0, horizon + 10);
       fog.addColorStop(0, 'rgba(11, 10, 26, 0)');
@@ -365,6 +471,7 @@
       const ctx = c.getContext('2d');
       const { tileW: W } = this;
       const base = CONFIG.GROUND_Y + 4;
+      this.ballardSignDrawn = false;
 
       let x = 20;
       while (x < W - 60) {
@@ -403,8 +510,18 @@
           ctx.fillRect(x + hw - 27, top + 22, 2, 18);
           ctx.fillRect(x + 16, top + 30, 20, 2);
           ctx.fillRect(x + hw - 36, top + 30, 20, 2);
-          // Neon sign on some houses
-          if (rng() > 0.55) {
+          // Neon sign on some houses (the first house carries the neighborhood sign instead)
+          if (!this.ballardSignDrawn) {
+            this.ballardSignDrawn = true;
+            ctx.save();
+            ctx.font = '9px "Press Start 2P", monospace';
+            ctx.textAlign = 'center';
+            ctx.fillStyle = PALETTE.cyan;
+            ctx.shadowColor = PALETTE.cyan;
+            ctx.shadowBlur = 12;
+            ctx.fillText('BALLARD', x + hw / 2, top + 16);
+            ctx.restore();
+          } else if (rng() > 0.55) {
             const sc = rng() > 0.5 ? PALETTE.pink : PALETTE.green;
             ctx.strokeStyle = sc;
             ctx.shadowColor = sc;
@@ -577,9 +694,9 @@
       this.vx = 0;
     }
 
-    /** Tight, forgiving hitbox: smaller than the drawn sprite. */
+    /** Tight, forgiving hitbox: covers the round body, not the fur tufts or legs' reach. */
     get hitbox() {
-      return { x: this.x + 14, y: this.y + 10, w: this.w - 30, h: this.h - 12 };
+      return { x: this.x + 12, y: this.y + 8, w: this.w - 26, h: this.h - 10 };
     }
 
     requestJump() {
@@ -620,7 +737,8 @@
         return;
       }
 
-      this.runPhase += dt * (10 + speed / 60);
+      // Jimothy scurries: a quick, bouncy cycle rather than a long stride.
+      this.runPhase += dt * (15 + speed / 45);
       if (this.coyote > 0) this.coyote -= dt;
       if (this.jumpBuffer > 0) {
         this.jumpBuffer -= dt;
@@ -662,135 +780,152 @@
       this.onGround = false;
     }
 
+    /**
+     * Jimothy, as he really is: a round, neckless "loaf" with a hunched back,
+     * disproportionately long legs and a short ringed tail. He scurries and
+     * hops rather than running, so the ground cycle is a quick bounce.
+     */
     draw(ctx, time) {
       const cx = this.x + this.w / 2;
       const feet = this.y + this.h;
       const airborne = !this.onGround;
-      const bob = airborne || this.dead ? 0 : Math.abs(Math.sin(this.runPhase)) * 3;
-      const tilt = airborne ? clamp(this.vy / 2600, -0.3, 0.35) : Math.sin(this.runPhase) * 0.035;
+      const hop = airborne || this.dead ? 0 : Math.abs(Math.sin(this.runPhase)) * 6;
+      const lean = airborne ? clamp(this.vy / 2600, -0.3, 0.35) : -0.06 + Math.sin(this.runPhase * 2) * 0.03;
 
       ctx.save();
-      ctx.translate(cx, feet - bob);
+      ctx.translate(cx, feet - hop);
       if (this.dead) {
         ctx.rotate(this.deadRot);
       } else if (this.flipping) {
         ctx.rotate(this.flipAngle);
       } else {
-        ctx.rotate(tilt);
+        ctx.rotate(lean);
       }
       ctx.scale(2 - this.squash, this.squash);
 
-      // --- Tail (striped) ---
-      const tailWag = this.dead ? 0 : airborne ? -0.9 : Math.sin(this.runPhase * 1.1) * 0.25;
+      // --- Short ringed tail (short spine = short tail) ---
+      const tailWag = this.dead ? 0.4 : airborne ? -0.7 : -0.15 + Math.sin(this.runPhase) * 0.2;
       ctx.save();
-      ctx.translate(-22, -24);
+      ctx.translate(-24, -26);
       ctx.rotate(tailWag);
-      const stripes = [PALETTE.furDark, PALETTE.furDarker, PALETTE.furDark, PALETTE.furDarker, PALETTE.furDark];
-      for (let i = 0; i < stripes.length; i++) {
-        ctx.fillStyle = stripes[i];
+      const rings = [PALETTE.furDark, PALETTE.furDarker, PALETTE.furDark, PALETTE.furDarker];
+      for (let i = 0; i < rings.length; i++) {
+        ctx.fillStyle = rings[i];
         ctx.beginPath();
-        ctx.ellipse(-i * 7, -i * 4.5, 10 - i * 0.8, 7 - i * 0.6, -0.5, 0, Math.PI * 2);
+        ctx.ellipse(-i * 6, -i * 2.5, 8.5 - i * 1.2, 6.5 - i * 0.8, -0.35, 0, Math.PI * 2);
         ctx.fill();
       }
       ctx.restore();
 
-      // --- Legs ---
-      ctx.fillStyle = PALETTE.furDark;
-      const legs = [-16, -7, 6, 15];
+      // --- Long, thin legs with little hands ---
+      const legs = [
+        { x: -15, back: true },
+        { x: -7, back: true },
+        { x: 11, back: false },
+        { x: 19, back: false },
+      ];
       for (let i = 0; i < legs.length; i++) {
+        const leg = legs[i];
         let swing;
-        if (this.dead) swing = 0.3 * ((i % 2) * 2 - 1);
-        else if (airborne) swing = i < 2 ? 0.55 : -0.45;
-        else swing = Math.sin(this.runPhase + (i % 2) * Math.PI) * 0.8;
+        if (this.dead) swing = 0.35 * ((i % 2) * 2 - 1);
+        else if (airborne) swing = leg.back ? 0.7 : -0.6;
+        else swing = Math.sin(this.runPhase + (i % 2) * Math.PI) * 0.95;
         ctx.save();
-        ctx.translate(legs[i], -16);
+        ctx.translate(leg.x, -20);
         ctx.rotate(swing);
-        roundRect(ctx, -4, 0, 8, 17, 3);
-        ctx.fill();
-        ctx.fillStyle = PALETTE.furDarker;
-        roundRect(ctx, -4, 12, 9, 5, 2);
-        ctx.fill();
         ctx.fillStyle = PALETTE.furDark;
+        roundRect(ctx, -2.5, 0, 5, 21, 2.5);
+        ctx.fill();
+        // Hand / foot with tiny toes
+        ctx.fillStyle = PALETTE.furDarker;
+        roundRect(ctx, -4, 17, 10, 4, 2);
+        ctx.fill();
+        ctx.fillRect(-3, 20, 1.5, 2);
+        ctx.fillRect(0, 20, 1.5, 2);
+        ctx.fillRect(3, 20, 1.5, 2);
         ctx.restore();
       }
 
-      // --- Body ---
+      // --- Round body with a hunch toward the back ---
       ctx.fillStyle = PALETTE.fur;
       ctx.beginPath();
-      ctx.ellipse(-4, -24, 25, 16, 0, 0, Math.PI * 2);
+      ctx.ellipse(0, -34, 27, 22, -0.18, 0, Math.PI * 2);
       ctx.fill();
+      // Shaggy back tufts along the top arc
+      ctx.fillStyle = PALETTE.furDark;
+      for (let i = 0; i < 9; i++) {
+        const a = Math.PI + 0.35 + (i / 8) * (Math.PI - 0.9);
+        const bx = Math.cos(a) * 27;
+        const by = -34 + Math.sin(a) * 22;
+        const flick = Math.sin(this.runPhase * 2 + i) * 1.2;
+        ctx.beginPath();
+        ctx.moveTo(bx - 4, by + 3);
+        ctx.lineTo(bx + flick, by - 5);
+        ctx.lineTo(bx + 4, by + 3);
+        ctx.closePath();
+        ctx.fill();
+      }
+      // Dark saddle on the hunched back
+      ctx.beginPath();
+      ctx.ellipse(-6, -47, 17, 7, -0.25, 0, Math.PI * 2);
+      ctx.fill();
+      // Light belly
       ctx.fillStyle = PALETTE.belly;
       ctx.beginPath();
-      ctx.ellipse(2, -20, 13, 9, 0, 0, Math.PI * 2);
-      ctx.fill();
-      // Back stripe
-      ctx.fillStyle = PALETTE.furDark;
-      ctx.beginPath();
-      ctx.ellipse(-8, -34, 16, 5, 0, 0, Math.PI * 2);
+      ctx.ellipse(4, -24, 16, 10, 0.1, 0, Math.PI * 2);
       ctx.fill();
 
-      // --- Head ---
-      const hx = 18;
-      const hy = -41;
-      // Ears
-      const earBack = airborne ? 4 : 0;
-      ctx.fillStyle = PALETTE.fur;
-      ctx.beginPath();
-      ctx.moveTo(hx - 14, hy - 4);
-      ctx.lineTo(hx - 10 - earBack, hy - 20);
-      ctx.lineTo(hx - 1, hy - 10);
-      ctx.closePath();
-      ctx.fill();
-      ctx.beginPath();
-      ctx.moveTo(hx + 2, hy - 10);
-      ctx.lineTo(hx + 8 - earBack, hy - 20);
-      ctx.lineTo(hx + 14, hy - 5);
-      ctx.closePath();
-      ctx.fill();
-      ctx.fillStyle = PALETTE.mask;
-      ctx.beginPath();
-      ctx.moveTo(hx - 11, hy - 6);
-      ctx.lineTo(hx - 9 - earBack, hy - 15);
-      ctx.lineTo(hx - 4, hy - 9);
-      ctx.closePath();
-      ctx.fill();
-      ctx.beginPath();
-      ctx.moveTo(hx + 4, hy - 9);
-      ctx.lineTo(hx + 7 - earBack, hy - 15);
-      ctx.lineTo(hx + 11, hy - 6);
-      ctx.closePath();
-      ctx.fill();
-
+      // --- Head sits directly on the body: no neck ---
+      const hx = 21;
+      const hy = -40;
+      // Ears: small, round, white-rimmed
+      const earBack = airborne ? 3 : 0;
+      for (const ex of [hx - 9, hx + 7]) {
+        ctx.fillStyle = PALETTE.furDark;
+        ctx.beginPath();
+        ctx.arc(ex - earBack * 0.5, hy - 12 + earBack, 5.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = PALETTE.eye;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.arc(ex - earBack * 0.5, hy - 12 + earBack, 5.5, Math.PI * 1.05, Math.PI * 1.95);
+        ctx.stroke();
+      }
       // Face
       ctx.fillStyle = PALETTE.fur;
       ctx.beginPath();
-      ctx.arc(hx, hy, 16, 0, Math.PI * 2);
+      ctx.ellipse(hx, hy, 15, 13.5, 0, 0, Math.PI * 2);
       ctx.fill();
-      ctx.fillStyle = PALETTE.belly;
+      // White brows and cheeks framing the mask
+      ctx.fillStyle = PALETTE.eye;
       ctx.beginPath();
-      ctx.ellipse(hx + 2, hy + 7, 13, 8, 0, 0, Math.PI * 2);
+      ctx.ellipse(hx - 5, hy - 7, 6.5, 3.2, -0.1, 0, Math.PI * 2);
+      ctx.ellipse(hx + 7, hy - 7, 6.5, 3.2, 0.1, 0, Math.PI * 2);
+      ctx.ellipse(hx + 4, hy + 7, 11, 5.5, 0.1, 0, Math.PI * 2);
       ctx.fill();
-
-      // Bandit mask
+      // Bandit mask: wide, sweeping down to the cheeks
       ctx.fillStyle = PALETTE.mask;
       ctx.beginPath();
-      ctx.ellipse(hx - 6, hy - 1, 9, 6.5, -0.15, 0, Math.PI * 2);
-      ctx.ellipse(hx + 8, hy - 1, 9, 6.5, 0.15, 0, Math.PI * 2);
+      ctx.ellipse(hx - 6, hy - 1, 9.5, 6, -0.35, 0, Math.PI * 2);
+      ctx.ellipse(hx + 8, hy - 1, 9, 6, 0.35, 0, Math.PI * 2);
+      ctx.fill();
+      // Grey stripe down the muzzle between the mask halves
+      ctx.fillStyle = PALETTE.furLight;
+      ctx.beginPath();
+      ctx.ellipse(hx + 2, hy + 1, 2.2, 6, 0, 0, Math.PI * 2);
       ctx.fill();
 
       // Eyes
-      const eyeR = airborne ? 3.8 : 3.1;
+      const eyeR = airborne ? 3.6 : 3;
       const blink = !this.dead && Math.sin(time * 1.7) > 0.985;
-      ctx.fillStyle = PALETTE.eye;
+      ctx.fillStyle = '#2a2622';
       ctx.beginPath();
       ctx.ellipse(hx - 5, hy - 1, eyeR, blink ? 0.6 : eyeR, 0, 0, Math.PI * 2);
       ctx.ellipse(hx + 8, hy - 1, eyeR, blink ? 0.6 : eyeR, 0, 0, Math.PI * 2);
       ctx.fill();
       if (!blink) {
-        ctx.fillStyle = this.dead ? PALETTE.danger : PALETTE.pupil;
         if (this.dead) {
-          // X eyes
-          ctx.strokeStyle = PALETTE.pupil;
+          ctx.strokeStyle = PALETTE.danger;
           ctx.lineWidth = 1.6;
           for (const ex of [hx - 5, hx + 8]) {
             ctx.beginPath();
@@ -801,35 +936,25 @@
             ctx.stroke();
           }
         } else {
-          ctx.beginPath();
-          ctx.arc(hx - 4, hy - 1, 1.7, 0, Math.PI * 2);
-          ctx.arc(hx + 9, hy - 1, 1.7, 0, Math.PI * 2);
-          ctx.fill();
-          // Eye shine
           ctx.fillStyle = '#ffffff';
           ctx.beginPath();
-          ctx.arc(hx - 3.3, hy - 2, 0.7, 0, Math.PI * 2);
-          ctx.arc(hx + 9.7, hy - 2, 0.7, 0, Math.PI * 2);
+          ctx.arc(hx - 3.6, hy - 2.2, 1.1, 0, Math.PI * 2);
+          ctx.arc(hx + 9.4, hy - 2.2, 1.1, 0, Math.PI * 2);
           ctx.fill();
         }
       }
 
-      // Snout & nose
-      ctx.fillStyle = PALETTE.belly;
-      ctx.beginPath();
-      ctx.ellipse(hx + 11, hy + 6, 7, 5, 0.2, 0, Math.PI * 2);
-      ctx.fill();
+      // Snout, nose and mouth
       ctx.fillStyle = PALETTE.nose;
       ctx.beginPath();
-      ctx.ellipse(hx + 16, hy + 4, 3, 2.4, 0, 0, Math.PI * 2);
+      ctx.ellipse(hx + 15, hy + 3, 3.4, 2.6, 0.2, 0, Math.PI * 2);
       ctx.fill();
-      // Mouth
       if (!this.dead) {
         ctx.strokeStyle = PALETTE.furDarker;
         ctx.lineWidth = 1.2;
         ctx.beginPath();
-        ctx.moveTo(hx + 10, hy + 9);
-        ctx.quadraticCurveTo(hx + 13, hy + 12, hx + 16, hy + 9);
+        ctx.moveTo(hx + 12, hy + 8);
+        ctx.quadraticCurveTo(hx + 15, hy + 11, hx + 18, hy + 8);
         ctx.stroke();
       }
 
@@ -1717,7 +1842,7 @@
       this.showOverlay({
         kicker: 'TAKING A BREATHER',
         title: 'PAUSED',
-        sub: 'Jimothy is catching his breath behind a dumpster.',
+        sub: 'Jimothy is catching his breath behind a Ballard dumpster.',
         button: 'RESUME',
         stats: false,
       });
@@ -1766,9 +1891,9 @@
 
     showStartOverlay() {
       this.showOverlay({
-        kicker: 'TRASH PANDA RUN',
+        kicker: '♥ TEAM JIMOTHY ♥',
         title: 'PRESS START',
-        sub: "Jimothy is hungry. The streets are not safe. Let's eat anyway.",
+        sub: "Ballard's roundest raccoon is hungry. The streets are not safe. Let's eat anyway.",
         button: 'START',
         stats: false,
       });
@@ -1776,10 +1901,12 @@
 
     showGameOverOverlay() {
       const quips = [
-        'The neighborhood wins this round.',
+        'Ballard wins this round. Ballard will not gloat.',
         'Jimothy will be back. Jimothy is always back.',
         'That pizza was worth it. Probably.',
-        'Animal Control: 1. Jimothy: still fabulous.',
+        'Animal Control: 1. Jimothy: still the most Seattle animal possible.',
+        'Not very Hot Jimothy Summer of you.',
+        'Somebody is already posting this to r/JimothyTheRaccoon.',
         'Bonked. Nobody saw. Nobody but you.',
       ];
       this.showOverlay({
@@ -1841,6 +1968,8 @@
       this.time += dt;
 
       this.update(dt);
+      const scroll = this.state === STATE.PLAYING ? this.speed : this.state === STATE.START ? CONFIG.BASE_SPEED * 0.5 : 0;
+      this.background.updateRain(dt, scroll);
       this.render();
 
       requestAnimationFrame((t) => this.frame(t));
@@ -1849,10 +1978,10 @@
     update(dt) {
       switch (this.state) {
         case STATE.START: {
-          // Attract mode: the city drifts by while Jimothy jogs in place.
+          // Attract mode: Ballard drifts by while Jimothy scurries in place.
           const idleSpeed = CONFIG.BASE_SPEED * 0.5;
           this.distance += idleSpeed * dt;
-          this.player.runPhase += dt * 10;
+          this.player.runPhase += dt * 15;
           this.particles.update(dt, idleSpeed);
           break;
         }
@@ -1965,6 +2094,7 @@
       p.draw(ctx, this.time);
       this.particles.draw(ctx);
       this.texts.draw(ctx);
+      this.background.drawRain(ctx);
 
       // Vignette
       const vig = ctx.createRadialGradient(

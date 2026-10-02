@@ -1,6 +1,6 @@
 # 🦝 Jimothy, the Raccoon
 
-> *A neon-soaked endless runner about one hungry raccoon, one dangerous neighborhood, and an unreasonable amount of pizza.*
+> *A neon-soaked endless runner starring Jimothy, the real-life round raccoon of Ballard, Seattle, who scurried his way into the internet's heart in the summer of 2026.*
 
 **Jimothy, the Raccoon** is a 2D side-scrolling arcade game built with nothing but vanilla JavaScript, the HTML5 Canvas API and the Web Audio API. No frameworks. No image files. No audio files. Every pixel is drawn and every sound is synthesized at runtime, so the whole game is three files you can host anywhere, including GitHub Pages.
 
@@ -8,11 +8,25 @@
 
 ## 📖 The Lore
 
-Jimothy was a perfectly ordinary raccoon until the night the Tanaka family's pizza place on 5th Street threw out an *entire* uncut pepperoni pie. One bite, and Jimothy understood his purpose.
+Jimothy is real.
 
-Now he runs. Every night, through the flickering neon of the Lowtown district, past hissing alley cats, over tipped-over trash cans, and straight at the Animal Control trucks that have been hunting him for years. They have nets. He has a double jump. It is not a fair fight, and that is exactly how Jimothy likes it.
+In July 2026, Seattle resident Kiana Hall filmed an unusually round raccoon scurrying through the Ballard neighborhood and posted the clip to Instagram. Asked why she called him Jimothy, she said she had no other explanation than that he looked like a Jimothy. The video passed eight million views within days, and the internet agreed: this was the most Seattle animal possible.
 
-Eat everything. Touch nothing. Never stop running.
+What makes Jimothy look the way he does is most likely **short spine syndrome**, a rare congenital condition. His spine is compressed, so he has no visible neck, a short rounded body, a hunched back and legs that look far too long for him. He doesn't run so much as scamper, hop and skip. Locals in Ballard say he had been living around the neighborhood for months or years before anyone outside noticed, and despite his shape he forages, climbs and gets around with apparent ease.
+
+Then came the summer. Residents posted sightings to the **r/JimothyTheRaccoon** subreddit. There were murals, tattoos, embroidery patterns and fan art. The Seattle Mariners handed out Jimothy rookie cards at T-Mobile Park and a Jimothy mascot won the Salmon Run. A one-of-one gold card sold for over twenty thousand dollars. He got a Google animation, a bobblehead, and a free sidekick in Fortnite. People called it Hot Jimothy Summer.
+
+This game is a fan tribute. In it, Jimothy does what Jimothy does: scurries through Ballard at night, eats everything, and outruns Animal Control on legs that have no business being that long.
+
+**Read more about the real Jimothy:**
+
+- [Who is Jimothy? Seattle's viral rotund raccoon takes the Internet by storm](https://komonews.com/news/local/who-is-jimothy-viral-rotund-raccoon-takes-seattle-and-the-internet-by-storm-video-social-media-short-spine-syndome-ballard-cute-animal-fan-art-residents-tourism-travel-summer-ballard-neighborhood-mariners) (KOMO News)
+- [Seattle's Jimothy the raccoon becomes overnight internet icon](https://www.king5.com/article/news/local/pets-and-animals/seattles-jimothy-raccoon-overnight-internet-icon/281-80e60395-a568-4806-ad14-4f08fc46a48d) (KING 5)
+- ["Hot Jimothy summer." Why a quirky raccoon is taking Seattle and the internet by storm](https://www.opb.org/article/2026/07/19/why-a-quirky-raccoon-is-taking-seattle-by-storm/) (OPB)
+- [What is short spine syndrome? Jimothy the raccoon may have this rare condition](https://www.washingtonpost.com/lifestyle/2026/07/23/seattles-famous-raccoon-jimothy-sheds-light-rare-spine-syndrome/) (Washington Post)
+- [Seattle Mariners to celebrate viral raccoon Jimothy at upcoming game](https://sports.yahoo.com/articles/seattle-mariners-celebrate-viral-raccoon-030656275.html) (Yahoo Sports)
+- [How to get the Jimothy Fortnite sidekick for free](https://www.vice.com/en/article/how-to-get-jimothy-fortnite-sidekick-free/) (VICE)
+- [Jimothy (raccoon)](https://en.wikipedia.org/wiki/Jimothy_(raccoon)) (Wikipedia)
 
 ---
 
@@ -52,7 +66,9 @@ Eat everything. Touch nothing. Never stop running.
 ## ✨ Features
 
 - **Procedural everything.** Jimothy, the cats, the trucks, the city, the food: all drawn with Canvas primitives. Every sound effect is a Web Audio synth.
-- **Three-layer parallax city.** A distant tower skyline, a mid-ground street of houses, fences and neon signs, and a wet foreground road that reflects the lights.
+- **The real Jimothy.** The sprite is modelled on the actual raccoon: round neckless body, hunched back, short ringed tail, long thin legs, pale brows and muzzle, and a bouncy scurry instead of a run.
+- **It's Ballard.** The Space Needle sits on the skyline, a BALLARD neon sign glows on the street, and a steady Seattle drizzle falls in the foreground.
+- **Three-layer parallax city.** A distant Seattle skyline, a mid-ground Ballard street of houses, fences and neon signs, and a wet foreground road that reflects the lights.
 - **Juice.** Squash and stretch on jumps and landings, a 360° flip on the double jump, particle bursts when you eat, dust clouds when you land, screen shake and a sad retro jingle when you get bonked.
 - **Fair collisions.** Axis-aligned bounding boxes tuned to be slightly smaller than the sprites, so near-misses feel like near-misses.
 - **Progressive difficulty.** New obstacle types unlock as you travel further, and the gaps between them tighten gradually.
