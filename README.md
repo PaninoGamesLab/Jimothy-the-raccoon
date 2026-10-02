@@ -1,6 +1,6 @@
 # 🦝 Jimothy, the Raccoon
 
-> *A neon-soaked endless runner starring Jimothy, the real-life round raccoon of Ballard, Seattle, who scurried his way into the internet's heart in the summer of 2026.*
+> *A cosy endless runner starring Jimothy, the real-life round raccoon of Ballard, Seattle, who scurried his way into the internet's heart in the summer of 2026.*
 
 **Jimothy, the Raccoon** is a 2D side-scrolling arcade game built with nothing but vanilla JavaScript, the HTML5 Canvas API and the Web Audio API. No frameworks. No image files. No audio files. Every pixel is drawn and every sound is synthesized at runtime, so the whole game is three files you can host anywhere, including GitHub Pages.
 
@@ -38,7 +38,8 @@ This game is a fan tribute. In it, Jimothy does what Jimothy does: scurries thro
 | Double Jump | Press again while in the air | Tap again while in the air |
 | Start / Restart | `Space` or `Enter` | Tap |
 | Pause / Resume | `P` or `Esc` | — |
-| Mute / Unmute | `M` | Tap the ♪ button |
+| Mute / Unmute | `M` | Tap the 🔊 button |
+| Fullscreen | `F` | Tap the ⛶ button (where the browser allows it) |
 
 ### Scoring
 
@@ -67,14 +68,15 @@ This game is a fan tribute. In it, Jimothy does what Jimothy does: scurries thro
 
 - **Procedural everything.** Jimothy, the cats, the trucks, the city, the food: all drawn with Canvas primitives. Every sound effect is a Web Audio synth.
 - **The real Jimothy.** The sprite is modelled on the actual raccoon: round neckless body, hunched back, short ringed tail, long thin legs, pale brows and muzzle, and a bouncy scurry instead of a run.
-- **It's Ballard.** The Space Needle sits on the skyline, a BALLARD neon sign glows on the street, and a steady Seattle drizzle falls in the foreground.
-- **Three-layer parallax city.** A distant Seattle skyline, a mid-ground Ballard street of houses, fences and neon signs, and a wet foreground road that reflects the lights.
+- **It's Ballard.** The Space Needle sits on the skyline, a BALLARD sign glows over a porch, and a soft Seattle drizzle falls in the foreground.
+- **Wholesome by design.** Cream paper, rounded type, little hearts when you eat, and a palette borrowed from a Pacific Northwest sunset instead of neon.
+- **Three-layer parallax city.** A distant Seattle skyline against a warm dusk, a mid-ground Ballard street of craftsman houses, trees, picket fences and string lights, and a wet foreground road that reflects the lights.
 - **Juice.** Squash and stretch on jumps and landings, a 360° flip on the double jump, particle bursts when you eat, dust clouds when you land, screen shake and a sad retro jingle when you get bonked.
 - **Fair collisions.** Axis-aligned bounding boxes tuned to be slightly smaller than the sprites, so near-misses feel like near-misses.
 - **Progressive difficulty.** New obstacle types unlock as you travel further, and the gaps between them tighten gradually.
-- **Mobile ready.** Pointer events for touch, a canvas that scales to any screen with correct device-pixel-ratio handling, and a layout that works in portrait and landscape.
+- **Mobile ready.** On phones the game takes the whole screen with the score floating over the top. The camera adapts to any screen shape: tall screens see more sky, wide screens see more road. Touch works through pointer events, and there is a fullscreen button where the browser supports it.
 - **Resilient.** Auto-pauses when you switch tabs, handles window resizing, and keeps working even if `localStorage` or `AudioContext` are unavailable.
-- **Zero dependencies.** The only network request is an optional Google Font. If it fails to load, the game falls back to a monospace font and keeps working.
+- **Zero dependencies.** The only network requests are two optional Google Fonts (Fredoka and Nunito). If they fail to load, the game falls back to system fonts and keeps working.
 
 ---
 
@@ -92,10 +94,11 @@ This game is a fan tribute. In it, Jimothy does what Jimothy does: scurries thro
 
 1. **Config & utilities** – tunable constants, a seeded PRNG, AABB helper.
 2. **AudioEngine** – lazily created `AudioContext`, synthesized jump / collect / game-over / fanfare sounds.
-3. **Background** – parallax layers rendered once into offscreen canvases, plus a dynamically drawn ground.
-4. **Entities** – `Player`, `Obstacle`, `Collectible`, `ParticleSystem`, `FloatingTexts`.
-5. **Spawner** – difficulty curve and procedural placement of obstacles and snack patterns.
-6. **Game** – `START → PLAYING → PAUSED → GAME_OVER` state machine, input handling, HUD, persistence and the `requestAnimationFrame` loop.
+3. **Background** – parallax layers rendered once into offscreen canvases, plus a dynamically drawn sky, ground and rain, all aware of the current camera.
+4. **Jimothy sprite** – the illustrated raccoon, drawn procedurally and pre-rendered into a frame sheet so it costs one `drawImage` per frame.
+5. **Entities** – `Player`, `Obstacle`, `Collectible`, `ParticleSystem`, `FloatingTexts`.
+6. **Spawner** – difficulty curve and procedural placement of obstacles and snack patterns.
+7. **Game** – `START → PLAYING → PAUSED → GAME_OVER` state machine, camera and fullscreen handling, input, HUD, persistence and the `requestAnimationFrame` loop.
 
 ---
 
@@ -150,6 +153,8 @@ All the important numbers live in the `CONFIG` object at the top of `game.js`:
 | `COYOTE_TIME` / `JUMP_BUFFER` | Input forgiveness. |
 | `ITEM_POINTS` | Points per snack. |
 | `PX_PER_METER` | How many pixels count as one metre (and therefore one point). |
+| `MIN_VIEW_W` / `MAX_VIEW_W` | How much road the camera shows on narrow and very wide screens. |
+| `SPRITE_SCALE` | How large Jimothy is drawn relative to the illustration. |
 
 Obstacle sizes, speeds and the distance at which each unlocks are in `OBSTACLE_TYPES`.
 

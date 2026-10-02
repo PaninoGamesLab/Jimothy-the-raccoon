@@ -3,27 +3,27 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-  <meta name="theme-color" content="#0b0a1a" />
-  <meta name="description" content="Jimothy, the Raccoon — an endless runner starring Seattle's viral round raccoon from Ballard. Scurry, hop, dodge Animal Control and eat every snack in the neighborhood." />
+  <meta name="theme-color" content="#fff6ea" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="description" content="Jimothy, the Raccoon — a cosy endless runner starring Seattle's beloved round raccoon from Ballard. Scurry, hop, dodge Animal Control and eat every snack in the neighborhood." />
   <title>Jimothy, the Raccoon</title>
 
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="style.css" />
 
-  <!-- Procedural favicon: a tiny raccoon face, no image files needed -->
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230b0a1a'/%3E%3Cellipse cx='16' cy='18' rx='12' ry='11' fill='%23857f78'/%3E%3Ccircle cx='8' cy='9' r='3' fill='%235a554f' stroke='%23ece8e0' stroke-width='1'/%3E%3Ccircle cx='24' cy='9' r='3' fill='%235a554f' stroke='%23ece8e0' stroke-width='1'/%3E%3Cellipse cx='11' cy='12' rx='4' ry='1.6' fill='%23ece8e0'/%3E%3Cellipse cx='21' cy='12' rx='4' ry='1.6' fill='%23ece8e0'/%3E%3Cellipse cx='10.5' cy='16' rx='5.5' ry='3.5' fill='%231d1b1a'/%3E%3Cellipse cx='21.5' cy='16' rx='5.5' ry='3.5' fill='%231d1b1a'/%3E%3Cellipse cx='16' cy='23' rx='6' ry='3' fill='%23ece8e0'/%3E%3Ccircle cx='16' cy='21.5' r='1.6' fill='%23141210'/%3E%3C/svg%3E" />
+  <!-- Procedural favicon: Jimothy's face, no image files needed -->
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23fff6ea'/%3E%3Cellipse cx='16' cy='18' rx='12' ry='11' fill='%23857f78'/%3E%3Ccircle cx='8' cy='9' r='3' fill='%235a554f' stroke='%23ece8e0' stroke-width='1'/%3E%3Ccircle cx='24' cy='9' r='3' fill='%235a554f' stroke='%23ece8e0' stroke-width='1'/%3E%3Cellipse cx='11' cy='12' rx='4' ry='1.6' fill='%23ece8e0'/%3E%3Cellipse cx='21' cy='12' rx='4' ry='1.6' fill='%23ece8e0'/%3E%3Cellipse cx='10.5' cy='16' rx='5.5' ry='3.5' fill='%231d1b1a'/%3E%3Cellipse cx='21.5' cy='16' rx='5.5' ry='3.5' fill='%231d1b1a'/%3E%3Cellipse cx='16' cy='23' rx='6' ry='3' fill='%23ece8e0'/%3E%3Ccircle cx='16' cy='21.5' r='1.6' fill='%23141210'/%3E%3C/svg%3E" />
 </head>
 <body>
-  <div class="scanlines" aria-hidden="true"></div>
-
   <main class="app">
     <header class="title-bar">
-      <h1 class="title">
-        <span class="title-line title-line--small">JIMOTHY,</span>
-        <span class="title-line">THE RACCOON</span>
-      </h1>
+      <p class="title-kicker"><span class="heart">♥</span> Team Jimothy <span class="heart">♥</span></p>
+      <h1 class="title">Jimothy, <span class="title-accent">the Raccoon</span></h1>
+      <p class="title-sub">A cosy little runner about Ballard's roundest neighbor.</p>
     </header>
 
     <section class="hud" aria-label="Scoreboard">
@@ -35,7 +35,7 @@
         <span class="hud-label">Best</span>
         <span class="hud-value" id="hud-high">0</span>
       </div>
-      <div class="hud-item">
+      <div class="hud-item hud-item--snacks">
         <span class="hud-label">Snacks</span>
         <span class="hud-value" id="hud-items">0</span>
       </div>
@@ -46,11 +46,11 @@
         Your browser does not support HTML5 Canvas.
       </canvas>
 
-      <!-- Start / Game Over overlay -->
+      <!-- Start / Pause / Game Over overlay -->
       <div class="overlay" id="overlay" role="dialog" aria-live="polite">
         <div class="overlay-card">
-          <p class="overlay-kicker" id="overlay-kicker">♥ TEAM JIMOTHY ♥</p>
-          <h2 class="overlay-title" id="overlay-title">PRESS START</h2>
+          <p class="overlay-kicker" id="overlay-kicker">♥ Team Jimothy ♥</p>
+          <h2 class="overlay-title" id="overlay-title">Ready, Jimothy?</h2>
           <p class="overlay-sub" id="overlay-sub">Ballard's roundest raccoon is hungry. The streets are not safe. Let's eat anyway.</p>
 
           <div class="overlay-stats" id="overlay-stats" hidden>
@@ -58,44 +58,55 @@
             <div><span>Snacks</span><strong id="final-items">0</strong></div>
             <div><span>Best</span><strong id="final-high">0</strong></div>
           </div>
-          <p class="overlay-record" id="overlay-record" hidden>★ NEW HIGH SCORE ★</p>
+          <p class="overlay-record" id="overlay-record" hidden>★ New high score! ★</p>
 
-          <button class="btn btn--primary" id="btn-start" type="button">START</button>
-          <p class="overlay-hint">or press <kbd>SPACE</kbd> / tap the screen</p>
+          <button class="btn btn--primary" id="btn-start" type="button">Start</button>
+
+          <ul class="overlay-controls" aria-label="Controls">
+            <li><strong>Tap</strong> or <kbd>Space</kbd> to jump</li>
+            <li><strong>Tap again</strong> in the air to double jump</li>
+          </ul>
         </div>
       </div>
 
-      <button class="btn btn--icon" id="btn-mute" type="button" aria-label="Toggle sound" title="Toggle sound (M)">♪</button>
+      <div class="stage-buttons">
+        <button class="btn btn--icon" id="btn-fullscreen" type="button" aria-label="Fullscreen" title="Fullscreen (F)" hidden>
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />
+          </svg>
+        </button>
+        <button class="btn btn--icon" id="btn-mute" type="button" aria-label="Toggle sound" title="Toggle sound (M)">🔊</button>
+      </div>
     </section>
 
     <section class="howto" aria-labelledby="howto-title">
-      <h3 class="howto-title" id="howto-title">HOW TO PLAY</h3>
+      <h3 class="howto-title" id="howto-title">How to play</h3>
       <ul class="howto-list">
-        <li><kbd>SPACE</kbd> / <kbd>↑</kbd> / <strong>TAP</strong> — Jump</li>
-        <li>Press again in the air — <strong>Double Jump</strong></li>
-        <li><kbd>P</kbd> — Pause &nbsp;·&nbsp; <kbd>M</kbd> — Mute</li>
+        <li><kbd>Space</kbd> <kbd>↑</kbd> or <strong>Tap</strong> — jump</li>
+        <li>Press again in the air — <strong>double jump</strong></li>
+        <li><kbd>P</kbd> pause &nbsp;·&nbsp; <kbd>M</kbd> sound &nbsp;·&nbsp; <kbd>F</kbd> fullscreen</li>
       </ul>
       <div class="legend">
         <div class="legend-group">
-          <span class="legend-head legend-head--good">EAT</span>
+          <span class="legend-head legend-head--good">Eat</span>
           <span class="chip chip--good">🍕 Pizza</span>
           <span class="chip chip--good">🍩 Donut</span>
-          <span class="chip chip--good">✨ Shiny Trash</span>
+          <span class="chip chip--good">✨ Shiny trash</span>
         </div>
         <div class="legend-group">
-          <span class="legend-head legend-head--bad">AVOID</span>
-          <span class="chip chip--bad">🗑 Trash Cans</span>
-          <span class="chip chip--bad">🐈 Alley Cats</span>
+          <span class="legend-head legend-head--bad">Avoid</span>
+          <span class="chip chip--bad">🗑 Trash cans</span>
+          <span class="chip chip--bad">🐈 Alley cats</span>
           <span class="chip chip--bad">🚚 Animal Control</span>
         </div>
       </div>
-      <p class="howto-note">1 point per meter · 10 points per snack · Speed ramps up the longer you survive.</p>
-      <p class="howto-note">Jimothy is a real raccoon from Ballard, Seattle. His short spine gives him that round, neckless shape and signature scurry. He went viral in July 2026 and has not stopped since.</p>
+      <p class="howto-note">1 point per meter · 10 points per snack · the city speeds up the longer you keep going.</p>
+      <p class="howto-note howto-note--lore">Jimothy is a real raccoon from Ballard, Seattle. His short spine gives him that round, neckless shape and his signature scurry. He went viral in July 2026, and the whole neighborhood has been rooting for him ever since.</p>
     </section>
 
     <footer class="footer">
-      <p>Built with vanilla JS, HTML5 Canvas &amp; the Web Audio API. No assets, no frameworks, no mercy.</p>
-      <p>A fan tribute to the real Jimothy of Ballard. Long may he scurry. ♥</p>
+      <p>Built with vanilla JavaScript, HTML5 Canvas &amp; the Web Audio API. No assets, no frameworks.</p>
+      <p>A fan tribute to the real Jimothy of Ballard. Long may he scurry. <span class="heart">♥</span></p>
     </footer>
   </main>
 

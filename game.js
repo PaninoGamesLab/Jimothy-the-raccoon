@@ -23,6 +23,11 @@
   const CONFIG = Object.freeze({
     WIDTH: 960,                 // logical canvas width
     HEIGHT: 540,                // logical canvas height
+    MIN_VIEW_W: 540,            // narrowest logical view (portrait phones)
+    MAX_VIEW_W: 1400,           // widest logical view (ultrawide screens)
+    PLAYER_X: 150,              // player's left edge on wide screens
+    PLAYER_X_NARROW: 100,       // ...and on narrow screens, to keep reaction time
+    SPRITE_SCALE: 0.8,          // illustration units -> logical px
     GROUND_Y: 450,              // y of the sidewalk surface (player's feet)
     PX_PER_METER: 20,           // 1 point per "meter"
     BASE_SPEED: 340,            // px / s at the start
@@ -66,6 +71,47 @@
     orange: '#ff8c42',
     danger: '#ff4d6d',
   });
+
+  /** Scenery palette: a warm, cosy Ballard dusk. */
+  const ART = Object.freeze({
+    skyTop: '#141a3f',
+    skyHigh: '#3c3570',
+    skyMid: '#7a5a8f',
+    skyLow: '#c97b85',
+    skyHorizon: '#f0a46e',
+    moon: '#fff1c9',
+    moonShade: '#f1dca0',
+    skyline: '#4a3d72',
+    skylineDark: '#3b2f5e',
+    windowWarm: '#ffd27a',
+    windowPeach: '#ffb37a',
+    houseA: '#8f6f9c',
+    houseB: '#6f86a8',
+    houseC: '#a97b6a',
+    houseD: '#7f9a7a',
+    roof: '#3e3356',
+    porch: '#d9c4a5',
+    door: '#5b3b3a',
+    trunk: '#5a4036',
+    leafDark: '#2d5440',
+    leaf: '#35634a',
+    leafLight: '#4b7d5a',
+    fence: '#e9dccb',
+    fenceRail: '#cdbfa9',
+    lamp: '#3e3356',
+    bulbPink: '#ffb3c1',
+    bulbMint: '#b8e0a8',
+    sidewalk: '#6a5b80',
+    sidewalkTop: '#7b6b92',
+    seam: '#574a6e',
+    curb: '#8a7aa3',
+    road: '#2f2846',
+    lane: '#5a4f73',
+    heart: '#e4566a',
+  });
+
+  /** Display font used for every piece of text drawn on the canvas. */
+  const FONT = '"Fredoka", "Nunito", "Segoe UI", sans-serif';
 
   const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
   const lerp = (a, b, t) => a + (b - a) * t;
@@ -261,37 +307,75 @@
 
   class Background {
     constructor() {
-      const { WIDTH: W, HEIGHT: H } = CONFIG;
-      this.W = W;
-      this.H = H;
+      this.H = CONFIG.HEIGHT;
       this.tileW = 1920;
+      this.fieldW = 1800; // width of the star / cloud fields before they repeat
       this.buildLayers();
-      // The neon signs use the pixel font; rebuild the tiles once it has loaded.
+      // The signs use the display font; rebuild the tiles once it has loaded.
       if (document.fonts && document.fonts.ready) {
         document.fonts.ready.then(() => this.buildLayers()).catch(() => {});
       }
 
-      // Seattle drizzle
+      // Seattle drizzle (soft, lavender, never heavy)
       this.rain = [];
-      for (let i = 0; i < 70; i++) {
+      for (let i = 0; i < 80; i++) {
         this.rain.push({
-          x: Math.random() * W,
-          y: Math.random() * H,
-          len: 10 + Math.random() * 14,
-          speed: 520 + Math.random() * 260,
+          x: Math.random() * 1600,
+          y: -800 + Math.random() * 1400,
+          len: 9 + Math.random() * 12,
+          speed: 460 + Math.random() * 240,
           depth: 0.4 + Math.random() * 0.6,
         });
       }
 
+      // Stars cover a tall field so portrait screens (which see far above the skyline) get sky too.
       this.stars = [];
       const rng = seededRandom(99);
-      for (let i = 0; i < 90; i++) {
+      for (let i = 0; i < 220; i++) {
         this.stars.push({
-          x: rng() * W,
-          y: rng() * (H * 0.55),
-          r: 0.6 + rng() * 1.4,
+          x: rng() * this.fieldW,
+          y: -900 + rng() * 1150,
+          r: 0.7 + rng() * 1.5,
           phase: rng() * Math.PI * 2,
-          speed: 0.6 + rng() * 2,
+          speed: 0.5 + rng() * 1.8,
+        });
+      }
+
+      // The moon and its glow, rendered once
+      this.moonR = 38;
+      this.moonCanvas = document.createElement('canvas');
+      this.moonCanvas.width = this.moonCanvas.height = 200;
+      {
+        const mc = this.moonCanvas.getContext('2d');
+        mc.save();
+        mc.shadowColor = ART.moon;
+        mc.shadowBlur = 48;
+        mc.fillStyle = ART.moon;
+        mc.beginPath();
+        mc.arc(100, 100, this.moonR, 0, Math.PI * 2);
+        mc.fill();
+        mc.fill();
+        mc.restore();
+        mc.fillStyle = ART.moonShade;
+        mc.beginPath();
+        mc.arc(89, 92, 6, 0, Math.PI * 2);
+        mc.arc(110, 110, 4, 0, Math.PI * 2);
+        mc.arc(104, 84, 3, 0, Math.PI * 2);
+        mc.fill();
+      }
+      this.skyGradient = null;
+      this.roadGradient = null;
+
+      // Soft clouds catching the last light
+      this.clouds = [];
+      const crng = seededRandom(7);
+      for (let i = 0; i < 9; i++) {
+        this.clouds.push({
+          x: crng() * this.fieldW,
+          y: -420 + crng() * 640,
+          w: 120 + crng() * 160,
+          h: 18 + crng() * 16,
+          a: 0.12 + crng() * 0.16,
         });
       }
     }
@@ -299,7 +383,7 @@
     buildLayers() {
       this.layers = [
         { factor: 0.12, canvas: this.buildSkyline(seededRandom(1337)) },
-        { factor: 0.35, canvas: this.buildHouses(seededRandom(4242)) },
+        { factor: 0.35, canvas: this.buildStreet(seededRandom(4242)) },
       ];
     }
 
@@ -314,8 +398,8 @@
     drawSpaceNeedle(ctx, x, baseY) {
       const h = 290;
       const top = baseY - h;
-      ctx.fillStyle = '#1f1b44';
-      // Three legs sweeping out to the base
+      const body = ART.skylineDark;
+      ctx.fillStyle = body;
       ctx.beginPath();
       ctx.moveTo(x - 34, baseY);
       ctx.lineTo(x - 7, top + 70);
@@ -323,16 +407,13 @@
       ctx.lineTo(x + 34, baseY);
       ctx.closePath();
       ctx.fill();
-      ctx.fillStyle = '#2a2558';
       ctx.fillRect(x - 3, top + 70, 6, h - 70);
-      // Halo ring under the saucer
-      ctx.strokeStyle = '#2a2558';
+      ctx.strokeStyle = body;
       ctx.lineWidth = 3;
       ctx.beginPath();
       ctx.ellipse(x, top + 72, 30, 6, 0, 0, Math.PI * 2);
       ctx.stroke();
-      // Saucer
-      ctx.fillStyle = '#2f2a60';
+      ctx.fillStyle = ART.skyline;
       ctx.beginPath();
       ctx.moveTo(x - 44, top + 56);
       ctx.lineTo(x + 44, top + 56);
@@ -343,219 +424,271 @@
       ctx.beginPath();
       ctx.ellipse(x, top + 50, 44, 9, 0, 0, Math.PI * 2);
       ctx.fill();
-      // Observation deck lights
       ctx.save();
-      ctx.fillStyle = PALETTE.yellow;
-      ctx.shadowColor = PALETTE.yellow;
+      ctx.fillStyle = ART.windowWarm;
+      ctx.shadowColor = ART.windowWarm;
       ctx.shadowBlur = 8;
       for (let i = -3; i <= 3; i++) ctx.fillRect(x + i * 11 - 2, top + 60, 4, 4);
-      ctx.fillStyle = PALETTE.cyan;
-      ctx.shadowColor = PALETTE.cyan;
       ctx.fillRect(x - 40, top + 50, 80, 1.5);
       ctx.restore();
-      // Spire with aircraft light
-      ctx.fillStyle = '#2a2558';
+      ctx.fillStyle = body;
       ctx.fillRect(x - 1.5, top, 3, 44);
       ctx.save();
-      ctx.fillStyle = PALETTE.danger;
-      ctx.shadowColor = PALETTE.danger;
+      ctx.fillStyle = ART.heart;
+      ctx.shadowColor = ART.heart;
       ctx.shadowBlur = 10;
       ctx.fillRect(x - 2.5, top - 4, 5, 5);
       ctx.restore();
     }
 
-    updateRain(dt, scroll) {
-      const { W, H } = this;
-      for (const d of this.rain) {
-        d.y += d.speed * d.depth * dt;
-        d.x -= (90 + scroll * 0.25) * d.depth * dt;
-        if (d.y > H + 20) {
-          d.y = -20 - Math.random() * 40;
-          d.x = Math.random() * (W + 200);
-        }
-        if (d.x < -20) d.x += W + 200;
-      }
-    }
-
-    drawRain(ctx) {
-      ctx.save();
-      ctx.lineCap = 'round';
-      for (const d of this.rain) {
-        ctx.globalAlpha = 0.1 + d.depth * 0.18;
-        ctx.lineWidth = d.depth * 1.4;
-        ctx.strokeStyle = '#bfe9ff';
-        ctx.beginPath();
-        ctx.moveTo(d.x, d.y);
-        ctx.lineTo(d.x - d.len * 0.18, d.y + d.len);
-        ctx.stroke();
-      }
-      ctx.restore();
-    }
-
-    /** Distant skyline: tall dark towers with glowing window grids. */
+    /** Distant skyline: soft plum towers with warm golden windows. */
     buildSkyline(rng) {
       const c = this.makeTile();
       const ctx = c.getContext('2d');
-      const { tileW: W, H } = this;
+      const { tileW: W } = this;
       const horizon = CONFIG.GROUND_Y - 40;
-      const windowColors = ['#00f0ff', '#ff2fa8', '#ffe24d', '#9d4dff', '#3dffb0'];
 
-      // Haze behind the buildings
-      const haze = ctx.createLinearGradient(0, horizon - 220, 0, horizon);
-      haze.addColorStop(0, 'rgba(157, 77, 255, 0)');
-      haze.addColorStop(1, 'rgba(157, 77, 255, 0.22)');
+      // Warm haze where the city meets the sunset
+      const haze = ctx.createLinearGradient(0, horizon - 240, 0, horizon);
+      haze.addColorStop(0, 'rgba(242, 164, 110, 0)');
+      haze.addColorStop(1, 'rgba(242, 164, 110, 0.35)');
       ctx.fillStyle = haze;
-      ctx.fillRect(0, horizon - 220, W, 220);
+      ctx.fillRect(0, horizon - 240, W, 240);
 
       let x = 0;
       while (x < W) {
         const bw = 40 + Math.floor(rng() * 70);
-        const bh = 90 + Math.floor(rng() * 220);
+        const bh = 80 + Math.floor(rng() * 210);
         const top = horizon - bh;
-        ctx.fillStyle = rng() > 0.5 ? '#171433' : '#1c1840';
+        ctx.fillStyle = rng() > 0.5 ? ART.skyline : ART.skylineDark;
         ctx.fillRect(x, top, bw, bh);
 
-        // Rooftop detail
         if (rng() > 0.55) {
-          ctx.fillStyle = '#120f2a';
+          ctx.fillStyle = ART.skylineDark;
           ctx.fillRect(x + bw * 0.3, top - 12, bw * 0.4, 12);
         }
-        if (rng() > 0.6) {
-          ctx.fillStyle = '#2a2550';
-          ctx.fillRect(x + bw / 2 - 1, top - 34, 2, 34);
-          ctx.fillStyle = '#ff4d6d';
-          ctx.fillRect(x + bw / 2 - 2, top - 36, 4, 4);
+        if (rng() > 0.7) {
+          // Rooftop water tower
+          ctx.fillStyle = ART.skylineDark;
+          ctx.fillRect(x + bw / 2 - 8, top - 18, 16, 18);
+          ctx.beginPath();
+          ctx.moveTo(x + bw / 2 - 10, top - 18);
+          ctx.lineTo(x + bw / 2, top - 26);
+          ctx.lineTo(x + bw / 2 + 10, top - 18);
+          ctx.closePath();
+          ctx.fill();
+        } else if (rng() > 0.6) {
+          ctx.fillStyle = ART.skylineDark;
+          ctx.fillRect(x + bw / 2 - 1, top - 30, 2, 30);
+          ctx.fillStyle = ART.heart;
+          ctx.fillRect(x + bw / 2 - 2, top - 32, 4, 4);
         }
 
-        // Windows
         const cols = Math.max(1, Math.floor((bw - 10) / 12));
         const rows = Math.max(1, Math.floor((bh - 12) / 14));
-        const tint = windowColors[Math.floor(rng() * windowColors.length)];
         for (let r = 0; r < rows; r++) {
           for (let cc = 0; cc < cols; cc++) {
-            if (rng() > 0.62) {
-              ctx.fillStyle = rng() > 0.8 ? '#ffe24d' : tint;
-              ctx.globalAlpha = 0.35 + rng() * 0.5;
+            if (rng() > 0.6) {
+              ctx.fillStyle = rng() > 0.75 ? ART.windowPeach : ART.windowWarm;
+              ctx.globalAlpha = 0.3 + rng() * 0.5;
               ctx.fillRect(x + 6 + cc * 12, top + 8 + r * 14, 6, 7);
             }
           }
         }
         ctx.globalAlpha = 1;
-
-        // Occasional neon rooftop strip
-        if (rng() > 0.7) {
-          ctx.fillStyle = tint;
-          ctx.shadowColor = tint;
-          ctx.shadowBlur = 12;
-          ctx.fillRect(x + 4, top + 2, bw - 8, 2);
-          ctx.shadowBlur = 0;
-        }
-
         x += bw + Math.floor(rng() * 14);
       }
 
       this.drawSpaceNeedle(ctx, 1240, horizon);
 
-      // Ground fog line that hides the base of the skyline
-      const fog = ctx.createLinearGradient(0, horizon - 50, 0, horizon + 10);
-      fog.addColorStop(0, 'rgba(11, 10, 26, 0)');
-      fog.addColorStop(1, 'rgba(11, 10, 26, 1)');
+      // Soft fog that hides the base of the skyline
+      const fog = ctx.createLinearGradient(0, horizon - 60, 0, horizon + 10);
+      fog.addColorStop(0, 'rgba(78, 62, 112, 0)');
+      fog.addColorStop(1, 'rgba(78, 62, 112, 1)');
       ctx.fillStyle = fog;
-      ctx.fillRect(0, horizon - 50, W, 60);
+      ctx.fillRect(0, horizon - 60, W, 70);
       return c;
     }
 
-    /** Mid layer: houses, fences, neon signs and streetlamps. */
-    buildHouses(rng) {
+    drawTree(ctx, x, base, rng) {
+      const trunkH = 26 + rng() * 20;
+      const r = 24 + rng() * 18;
+      ctx.fillStyle = ART.trunk;
+      ctx.fillRect(x - 4, base - trunkH, 8, trunkH);
+      const greens = [ART.leafDark, ART.leaf, ART.leafLight];
+      for (let i = 0; i < 3; i++) {
+        ctx.fillStyle = greens[i];
+        ctx.beginPath();
+        ctx.arc(x + (i - 1) * r * 0.45, base - trunkH - r * 0.7 + i * 4, r - i * 5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    drawStringLights(ctx, x1, x2, y, rng) {
+      const sag = 14 + rng() * 10;
+      ctx.strokeStyle = 'rgba(60, 45, 80, 0.9)';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(x1, y);
+      ctx.quadraticCurveTo((x1 + x2) / 2, y + sag * 2, x2, y);
+      ctx.stroke();
+      const bulbs = [ART.windowWarm, ART.bulbPink, ART.bulbMint, ART.windowPeach];
+      const n = Math.max(3, Math.floor((x2 - x1) / 22));
+      ctx.save();
+      ctx.shadowBlur = 8;
+      for (let i = 1; i < n; i++) {
+        const t = i / n;
+        const bx = x1 + (x2 - x1) * t;
+        const by = y + 2 * sag * t * (1 - t) * 2;
+        const col = bulbs[i % bulbs.length];
+        ctx.fillStyle = col;
+        ctx.shadowColor = col;
+        ctx.beginPath();
+        ctx.arc(bx, by + 4, 2.4, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+
+    /** Mid layer: a cosy Ballard street of craftsman houses, trees, fences and string lights. */
+    buildStreet(rng) {
       const c = this.makeTile();
       const ctx = c.getContext('2d');
       const { tileW: W } = this;
       const base = CONFIG.GROUND_Y + 4;
-      this.ballardSignDrawn = false;
+      let signDrawn = false;
+      const walls = [ART.houseA, ART.houseB, ART.houseC, ART.houseD];
 
       let x = 20;
       while (x < W - 60) {
         const kind = rng();
-        if (kind < 0.45) {
-          // House
-          const hw = 120 + Math.floor(rng() * 70);
-          const hh = 80 + Math.floor(rng() * 50);
+        if (kind < 0.42) {
+          // Craftsman house with a porch
+          const hw = 130 + Math.floor(rng() * 70);
+          const hh = 84 + Math.floor(rng() * 46);
           const top = base - hh;
-          const wall = rng() > 0.5 ? '#2b2650' : '#262146';
+          const wall = walls[Math.floor(rng() * walls.length)];
           ctx.fillStyle = wall;
           ctx.fillRect(x, top, hw, hh);
-          // Roof
-          ctx.fillStyle = '#1b1838';
+          // Roof with overhang
+          ctx.fillStyle = ART.roof;
           ctx.beginPath();
-          ctx.moveTo(x - 10, top);
-          ctx.lineTo(x + hw / 2, top - 40);
-          ctx.lineTo(x + hw + 10, top);
+          ctx.moveTo(x - 14, top + 4);
+          ctx.lineTo(x + hw / 2, top - 44);
+          ctx.lineTo(x + hw + 14, top + 4);
+          ctx.lineTo(x + hw + 14, top + 10);
+          ctx.lineTo(x - 14, top + 10);
           ctx.closePath();
           ctx.fill();
-          // Door
-          ctx.fillStyle = '#15132c';
-          ctx.fillRect(x + hw / 2 - 11, base - 36, 22, 36);
-          // Windows
-          const wc = rng() > 0.5 ? '#ffe24d' : '#00f0ff';
-          ctx.fillStyle = wc;
-          ctx.shadowColor = wc;
-          ctx.shadowBlur = 10;
-          ctx.globalAlpha = 0.85;
-          ctx.fillRect(x + 16, top + 22, 20, 18);
-          ctx.fillRect(x + hw - 36, top + 22, 20, 18);
+          // Attic window
+          ctx.fillStyle = ART.windowWarm;
+          ctx.globalAlpha = 0.9;
+          ctx.beginPath();
+          ctx.arc(x + hw / 2, top - 12, 6, 0, Math.PI * 2);
+          ctx.fill();
           ctx.globalAlpha = 1;
-          ctx.shadowBlur = 0;
+          // Porch
+          ctx.fillStyle = ART.roof;
+          ctx.fillRect(x + hw / 2 - 34, base - 54, 68, 6);
+          ctx.fillStyle = ART.porch;
+          ctx.fillRect(x + hw / 2 - 32, base - 48, 5, 48);
+          ctx.fillRect(x + hw / 2 + 27, base - 48, 5, 48);
+          ctx.fillRect(x + hw / 2 - 34, base - 8, 68, 8);
+          // Door
+          ctx.fillStyle = ART.door;
+          roundRect(ctx, x + hw / 2 - 11, base - 40, 22, 40, 3);
+          ctx.fill();
+          ctx.fillStyle = ART.windowWarm;
+          ctx.fillRect(x + hw / 2 - 6, base - 34, 12, 8);
+          // Windows, warm and lit
+          ctx.save();
+          ctx.fillStyle = ART.windowWarm;
+          ctx.shadowColor = ART.windowWarm;
+          ctx.shadowBlur = 12;
+          ctx.globalAlpha = 0.95;
+          roundRect(ctx, x + 16, top + 24, 22, 20, 2);
+          ctx.fill();
+          roundRect(ctx, x + hw - 38, top + 24, 22, 20, 2);
+          ctx.fill();
+          ctx.restore();
           ctx.fillStyle = wall;
-          ctx.fillRect(x + 25, top + 22, 2, 18);
-          ctx.fillRect(x + hw - 27, top + 22, 2, 18);
-          ctx.fillRect(x + 16, top + 30, 20, 2);
-          ctx.fillRect(x + hw - 36, top + 30, 20, 2);
-          // Neon sign on some houses (the first house carries the neighborhood sign instead)
-          if (!this.ballardSignDrawn) {
-            this.ballardSignDrawn = true;
+          ctx.fillRect(x + 26, top + 24, 2, 20);
+          ctx.fillRect(x + hw - 28, top + 24, 2, 20);
+          ctx.fillRect(x + 16, top + 33, 22, 2);
+          ctx.fillRect(x + hw - 38, top + 33, 22, 2);
+          // Flower box under one window
+          ctx.fillStyle = ART.trunk;
+          ctx.fillRect(x + 14, top + 45, 26, 5);
+          for (let f = 0; f < 4; f++) {
+            ctx.fillStyle = f % 2 ? ART.bulbPink : ART.heart;
+            ctx.beginPath();
+            ctx.arc(x + 18 + f * 6, top + 44, 2.2, 0, Math.PI * 2);
+            ctx.fill();
+          }
+          // The neighbourhood sign, once per tile
+          if (!signDrawn) {
+            signDrawn = true;
             ctx.save();
-            ctx.font = '9px "Press Start 2P", monospace';
+            ctx.fillStyle = ART.roof;
+            roundRect(ctx, x + hw / 2 - 40, top + 50, 80, 20, 4);
+            ctx.fill();
+            ctx.font = `bold 13px ${FONT}`;
             ctx.textAlign = 'center';
-            ctx.fillStyle = PALETTE.cyan;
-            ctx.shadowColor = PALETTE.cyan;
-            ctx.shadowBlur = 12;
-            ctx.fillText('BALLARD', x + hw / 2, top + 16);
+            ctx.textBaseline = 'middle';
+            ctx.fillStyle = ART.windowWarm;
+            ctx.shadowColor = ART.windowWarm;
+            ctx.shadowBlur = 10;
+            ctx.fillText('BALLARD', x + hw / 2, top + 60);
             ctx.restore();
-          } else if (rng() > 0.55) {
-            const sc = rng() > 0.5 ? PALETTE.pink : PALETTE.green;
-            ctx.strokeStyle = sc;
-            ctx.shadowColor = sc;
-            ctx.shadowBlur = 14;
-            ctx.lineWidth = 3;
-            ctx.strokeRect(x + hw / 2 - 26, top + 6, 52, 14);
-            ctx.shadowBlur = 0;
           }
-          x += hw + 30 + Math.floor(rng() * 40);
-        } else if (kind < 0.75) {
-          // Fence section
-          const fw = 90 + Math.floor(rng() * 120);
-          ctx.fillStyle = '#2a2548';
+          x += hw + 34 + Math.floor(rng() * 40);
+        } else if (kind < 0.62) {
+          // Picket fence with a tree behind it
+          const fw = 100 + Math.floor(rng() * 120);
+          this.drawTree(ctx, x + fw * (0.3 + rng() * 0.4), base, rng);
+          ctx.fillStyle = ART.fence;
           for (let px = x; px < x + fw; px += 14) {
-            ctx.fillRect(px, base - 42, 9, 42);
+            ctx.fillRect(px, base - 40, 8, 40);
+            ctx.beginPath();
+            ctx.moveTo(px, base - 40);
+            ctx.lineTo(px + 4, base - 46);
+            ctx.lineTo(px + 8, base - 40);
+            ctx.closePath();
+            ctx.fill();
           }
-          ctx.fillStyle = '#332d58';
-          ctx.fillRect(x, base - 36, fw, 5);
-          ctx.fillRect(x, base - 18, fw, 5);
+          ctx.fillStyle = ART.fenceRail;
+          ctx.fillRect(x, base - 34, fw, 4);
+          ctx.fillRect(x, base - 16, fw, 4);
           x += fw + 20 + Math.floor(rng() * 30);
+        } else if (kind < 0.8) {
+          // Two trees with string lights between them
+          const gap = 110 + Math.floor(rng() * 60);
+          this.drawTree(ctx, x, base, rng);
+          this.drawTree(ctx, x + gap, base, rng);
+          this.drawStringLights(ctx, x, x + gap, base - 70, rng);
+          x += gap + 50 + Math.floor(rng() * 40);
         } else {
-          // Streetlamp
-          ctx.fillStyle = '#3a3560';
+          // Old-fashioned street lamp with a warm pool of light
+          ctx.fillStyle = ART.lamp;
           ctx.fillRect(x + 4, base - 150, 6, 150);
-          ctx.fillRect(x - 4, base - 150, 22, 6);
-          ctx.fillStyle = '#ffe24d';
-          ctx.shadowColor = '#ffe24d';
+          ctx.fillRect(x - 6, base - 150, 26, 5);
+          ctx.beginPath();
+          ctx.moveTo(x + 10, base - 150);
+          ctx.lineTo(x + 20, base - 140);
+          ctx.lineTo(x + 32, base - 140);
+          ctx.lineTo(x + 20, base - 158);
+          ctx.closePath();
+          ctx.fill();
+          ctx.save();
+          ctx.fillStyle = ART.windowWarm;
+          ctx.shadowColor = ART.windowWarm;
           ctx.shadowBlur = 18;
-          ctx.fillRect(x + 14, base - 148, 12, 8);
-          ctx.shadowBlur = 0;
-          // Light cone
+          roundRect(ctx, x + 14, base - 148, 12, 10, 3);
+          ctx.fill();
+          ctx.restore();
           const cone = ctx.createLinearGradient(0, base - 140, 0, base);
-          cone.addColorStop(0, 'rgba(255, 226, 77, 0.18)');
-          cone.addColorStop(1, 'rgba(255, 226, 77, 0)');
+          cone.addColorStop(0, 'rgba(255, 210, 122, 0.22)');
+          cone.addColorStop(1, 'rgba(255, 210, 122, 0)');
           ctx.fillStyle = cone;
           ctx.beginPath();
           ctx.moveTo(x + 20, base - 140);
@@ -569,69 +702,76 @@
       return c;
     }
 
-    drawSky(ctx, time) {
-      const { W, H } = this;
-      const sky = ctx.createLinearGradient(0, 0, 0, H);
-      sky.addColorStop(0, '#05041a');
-      sky.addColorStop(0.45, '#15103a');
-      sky.addColorStop(0.8, '#2a1650');
-      sky.addColorStop(1, '#1c1240');
-      ctx.fillStyle = sky;
-      ctx.fillRect(0, 0, W, H);
+    /** Sky: a warm Pacific-Northwest dusk, from deep blue overhead to peach at the horizon. */
+    drawSky(ctx, time, distance, view) {
+      const H = this.H;
+      if (!this.skyGradient) {
+        const sky = ctx.createLinearGradient(0, -700, 0, 430);
+        sky.addColorStop(0, ART.skyTop);
+        sky.addColorStop(0.45, ART.skyHigh);
+        sky.addColorStop(0.72, ART.skyMid);
+        sky.addColorStop(0.9, ART.skyLow);
+        sky.addColorStop(1, ART.skyHorizon);
+        this.skyGradient = sky;
+      }
+      ctx.fillStyle = this.skyGradient;
+      ctx.fillRect(0, view.top, view.w, H - view.top);
 
-      // Stars (twinkle)
+      // Stars, fading toward the bright horizon
+      ctx.fillStyle = '#fff6e8';
       for (const s of this.stars) {
-        const a = 0.35 + 0.65 * (0.5 + 0.5 * Math.sin(time * s.speed + s.phase));
-        ctx.globalAlpha = a;
-        ctx.fillStyle = '#e8e6ff';
+        if (s.x > view.w + 4 || s.y < view.top - 4 || s.y > 260) continue;
+        const twinkle = 0.5 + 0.5 * Math.sin(time * s.speed + s.phase);
+        const fade = clamp((260 - s.y) / 300, 0, 1);
+        ctx.globalAlpha = (0.25 + 0.6 * twinkle) * fade;
         ctx.fillRect(s.x, s.y, s.r, s.r);
       }
       ctx.globalAlpha = 1;
 
-      // Moon
-      ctx.save();
-      ctx.shadowColor = '#ffe24d';
-      ctx.shadowBlur = 40;
-      ctx.fillStyle = '#fff3b0';
-      ctx.beginPath();
-      ctx.arc(W - 150, 90, 36, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
-      ctx.fillStyle = '#ecd98a';
-      ctx.beginPath();
-      ctx.arc(W - 160, 82, 6, 0, Math.PI * 2);
-      ctx.arc(W - 138, 100, 4, 0, Math.PI * 2);
-      ctx.fill();
-    }
+      // Moon, kept near the top of whatever the screen shows
+      const mx = view.w - 140;
+      const my = view.top < -140 ? view.top + 130 : 90;
+      ctx.drawImage(this.moonCanvas, mx - 100, my - 100);
 
-    drawLayers(ctx, distance) {
-      for (const layer of this.layers) {
-        const off = (distance * layer.factor) % this.tileW;
-        ctx.drawImage(layer.canvas, -off, 0);
-        ctx.drawImage(layer.canvas, -off + this.tileW, 0);
+      // Clouds drifting slowly
+      const drift = (distance * 0.04 + time * 6) % this.fieldW;
+      for (const cl of this.clouds) {
+        let cx = cl.x - drift;
+        if (cx < -cl.w) cx += this.fieldW;
+        if (cx > view.w + cl.w || cl.y + cl.h < view.top) continue;
+        ctx.fillStyle = `rgba(255, 214, 222, ${cl.a})`;
+        ctx.beginPath();
+        ctx.ellipse(cx, cl.y, cl.w / 2, cl.h, 0, 0, Math.PI * 2);
+        ctx.ellipse(cx - cl.w * 0.22, cl.y + 4, cl.w * 0.3, cl.h * 0.8, 0, 0, Math.PI * 2);
+        ctx.ellipse(cx + cl.w * 0.2, cl.y + 2, cl.w * 0.28, cl.h * 0.9, 0, 0, Math.PI * 2);
+        ctx.fill();
       }
     }
 
-    drawGround(ctx, distance) {
-      const { W, H } = this;
+    drawLayers(ctx, distance, view) {
+      for (const layer of this.layers) {
+        const off = (distance * layer.factor) % this.tileW;
+        for (let x = -off; x < view.w; x += this.tileW) ctx.drawImage(layer.canvas, x, 0);
+      }
+    }
+
+    drawGround(ctx, distance, view) {
+      const H = this.H;
+      const W = view.w;
       const gy = CONFIG.GROUND_Y;
 
       // Sidewalk
-      ctx.fillStyle = '#2f2a55';
+      ctx.fillStyle = ART.sidewalk;
       ctx.fillRect(0, gy, W, 44);
-      ctx.fillStyle = '#3a3466';
+      ctx.fillStyle = ART.sidewalkTop;
       ctx.fillRect(0, gy, W, 5);
-      // Slab seams
       const seam = 96;
-      let off = distance % seam;
-      ctx.fillStyle = '#23203f';
-      for (let x = -off; x < W; x += seam) {
-        ctx.fillRect(x, gy + 5, 3, 39);
-      }
-      // Cracks (deterministic by slab index)
+      const off = distance % seam;
+      ctx.fillStyle = ART.seam;
+      for (let x = -off; x < W; x += seam) ctx.fillRect(x, gy + 5, 3, 39);
       for (let x = -off, i = Math.floor(distance / seam); x < W; x += seam, i++) {
         if ((i * 7919) % 5 === 0) {
-          ctx.strokeStyle = '#201c3a';
+          ctx.strokeStyle = ART.seam;
           ctx.lineWidth = 2;
           ctx.beginPath();
           ctx.moveTo(x + 20, gy + 12);
@@ -639,30 +779,133 @@
           ctx.lineTo(x + 32, gy + 38);
           ctx.stroke();
         }
+        if ((i * 104729) % 7 === 0) {
+          // A little tuft of grass between the slabs
+          ctx.fillStyle = ART.leafLight;
+          ctx.beginPath();
+          ctx.moveTo(x + 60, gy + 6);
+          ctx.lineTo(x + 63, gy - 4);
+          ctx.lineTo(x + 66, gy + 6);
+          ctx.moveTo(x + 64, gy + 6);
+          ctx.lineTo(x + 68, gy - 2);
+          ctx.lineTo(x + 70, gy + 6);
+          ctx.fill();
+        }
       }
 
       // Curb
-      ctx.fillStyle = '#4b4480';
+      ctx.fillStyle = ART.curb;
       ctx.fillRect(0, gy + 44, W, 6);
-      ctx.fillStyle = '#ffe24d';
-      ctx.globalAlpha = 0.5;
-      const dashOff = distance % 48;
-      for (let x = -dashOff; x < W; x += 48) ctx.fillRect(x, gy + 45, 24, 2);
-      ctx.globalAlpha = 1;
 
-      // Road
-      ctx.fillStyle = '#14122a';
+      // Road, wet, catching the warm lights
+      ctx.fillStyle = ART.road;
       ctx.fillRect(0, gy + 50, W, H - gy - 50);
-      ctx.fillStyle = '#2b2655';
+      ctx.fillStyle = ART.lane;
       const laneOff = (distance * 1.3) % 120;
       for (let x = -laneOff; x < W; x += 120) ctx.fillRect(x, gy + 72, 60, 4);
-
-      // Neon reflection on the wet road
-      const refl = ctx.createLinearGradient(0, gy + 50, 0, H);
-      refl.addColorStop(0, 'rgba(0, 240, 255, 0.08)');
-      refl.addColorStop(1, 'rgba(255, 47, 168, 0.06)');
-      ctx.fillStyle = refl;
+      if (!this.roadGradient) {
+        const refl = ctx.createLinearGradient(0, gy + 50, 0, H);
+        refl.addColorStop(0, 'rgba(255, 190, 120, 0.12)');
+        refl.addColorStop(1, 'rgba(255, 140, 160, 0.06)');
+        this.roadGradient = refl;
+      }
+      ctx.fillStyle = this.roadGradient;
       ctx.fillRect(0, gy + 50, W, H - gy - 50);
+    }
+
+    updateRain(dt, scroll, view) {
+      const H = this.H;
+      const spanW = view.w + 200;
+      for (const d of this.rain) {
+        d.y += d.speed * d.depth * dt;
+        d.x -= (80 + scroll * 0.25) * d.depth * dt;
+        if (d.y > H + 20) {
+          d.y = view.top - 30 - Math.random() * 60;
+          d.x = Math.random() * spanW;
+        }
+        if (d.x < -20) d.x += spanW;
+      }
+    }
+
+    drawRain(ctx, view) {
+      ctx.save();
+      ctx.lineCap = 'round';
+      ctx.strokeStyle = '#e4dcff';
+      for (const d of this.rain) {
+        if (d.x > view.w + 10 || d.y + d.len < view.top) continue;
+        ctx.globalAlpha = 0.08 + d.depth * 0.16;
+        ctx.lineWidth = d.depth * 1.3;
+        ctx.beginPath();
+        ctx.moveTo(d.x, d.y);
+        ctx.lineTo(d.x - d.len * 0.16, d.y + d.len);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+  }
+
+  /* ========================================================================
+     4a. JIMOTHY SPRITE — the illustrated raccoon, pre-rendered to frames
+     ====================================================================== */
+
+  /**
+   * The illustration follows a small contract: { bounds, draw(ctx, state) }
+   * with the origin at the point on the ground under the body centre, +x to
+   * the right, y negative upwards, and state = { pose, t, time } where pose is
+   * 'run' | 'jump' | 'fall' | 'dead' and t is the gait phase in [0, 1).
+   */
+  const JimothySprite = (() => {
+    return null; // replaced by the final illustration below
+  })();
+
+  /** Pre-renders a sprite into offscreen canvases so each frame is one drawImage. */
+  class SpriteSheet {
+    constructor(sprite, { runFrames = 12, scale = 3 } = {}) {
+      this.sprite = sprite;
+      this.scale = scale;
+      this.runFrames = runFrames;
+      // Generous box in sprite coordinates; covers everything the contract allows.
+      this.box = { x: -100, y: -118, w: 180, h: 124 };
+      this.frames = { run: [], jump: null, fall: null, dead: null };
+      this.ok = false;
+      try {
+        this.build();
+        this.ok = true;
+      } catch (_) {
+        this.ok = false;
+      }
+    }
+
+    renderFrame(state) {
+      const c = document.createElement('canvas');
+      c.width = Math.ceil(this.box.w * this.scale);
+      c.height = Math.ceil(this.box.h * this.scale);
+      const ctx = c.getContext('2d');
+      ctx.setTransform(this.scale, 0, 0, this.scale, -this.box.x * this.scale, -this.box.y * this.scale);
+      this.sprite.draw(ctx, state);
+      return c;
+    }
+
+    build() {
+      for (let i = 0; i < this.runFrames; i++) {
+        this.frames.run.push(this.renderFrame({ pose: 'run', t: i / this.runFrames, time: 0 }));
+      }
+      this.frames.jump = this.renderFrame({ pose: 'jump', t: 0, time: 0 });
+      this.frames.fall = this.renderFrame({ pose: 'fall', t: 0, time: 0 });
+      this.frames.dead = this.renderFrame({ pose: 'dead', t: 0, time: 0 });
+    }
+
+    frame(pose, t) {
+      if (pose === 'run') {
+        const i = Math.floor((((t % 1) + 1) % 1) * this.runFrames) % this.runFrames;
+        return this.frames.run[i];
+      }
+      return this.frames[pose] || this.frames.run[0];
+    }
+
+    /** Draws a frame with the sprite origin at the current transform origin. */
+    draw(ctx, pose, t) {
+      ctx.drawImage(this.frame(pose, t), this.box.x, this.box.y, this.box.w, this.box.h);
     }
   }
 
@@ -672,13 +915,32 @@
 
   class Player {
     constructor() {
-      this.x = 150;
-      this.w = 64;
-      this.h = 54;
+      this.homeX = CONFIG.PLAYER_X;
+      this.sheet = null;
+      this.spriteScale = CONFIG.SPRITE_SCALE;
+      this.spriteOffX = 0;
+      if (JimothySprite && JimothySprite.bounds) {
+        const sheet = new SpriteSheet(JimothySprite);
+        if (sheet.ok) {
+          const b = JimothySprite.bounds;
+          const S = this.spriteScale;
+          this.sheet = sheet;
+          this.w = (b.right - b.left) * S;
+          this.h = -b.top * S;
+          // Body box centre may not sit at the sprite origin; shift so it does.
+          this.spriteOffX = -((b.left + b.right) / 2) * S;
+        }
+      }
+      if (!this.sheet) {
+        this.w = 64;
+        this.h = 54;
+      }
       this.reset();
     }
 
     reset() {
+      // The death knockback pushes Jimothy off screen, so x must come back too.
+      this.x = this.homeX;
       this.y = CONFIG.GROUND_Y - this.h;
       this.vy = 0;
       this.onGround = true;
@@ -696,6 +958,9 @@
 
     /** Tight, forgiving hitbox: covers the round body, not the fur tufts or legs' reach. */
     get hitbox() {
+      if (this.sheet) {
+        return { x: this.x + this.w * 0.1, y: this.y + this.h * 0.12, w: this.w * 0.8, h: this.h * 0.88 };
+      }
       return { x: this.x + 12, y: this.y + 8, w: this.w - 26, h: this.h - 10 };
     }
 
@@ -791,6 +1056,21 @@
       const airborne = !this.onGround;
       const hop = airborne || this.dead ? 0 : Math.abs(Math.sin(this.runPhase)) * 6;
       const lean = airborne ? clamp(this.vy / 2600, -0.3, 0.35) : -0.06 + Math.sin(this.runPhase * 2) * 0.03;
+
+      if (this.sheet) {
+        const pose = this.dead ? 'dead' : airborne ? (this.vy < 0 ? 'jump' : 'fall') : 'run';
+        const phase = (this.runPhase / (Math.PI * 2)) % 1;
+        ctx.save();
+        ctx.translate(cx + this.spriteOffX, feet - hop);
+        if (this.dead) ctx.rotate(this.deadRot);
+        else if (this.flipping) ctx.rotate(this.flipAngle);
+        else ctx.rotate(lean);
+        const S = this.spriteScale;
+        ctx.scale(S * (2 - this.squash), S * this.squash);
+        this.sheet.draw(ctx, pose, phase);
+        ctx.restore();
+        return;
+      }
 
       ctx.save();
       ctx.translate(cx, feet - hop);
@@ -1092,9 +1372,9 @@
       ctx.fill();
       // Graffiti tag
       ctx.fillStyle = PALETTE.pink;
-      ctx.font = '10px "Press Start 2P", monospace';
+      ctx.font = `bold 13px ${FONT}`;
       ctx.textAlign = 'center';
-      ctx.fillText('JIM', w / 2, 44);
+      ctx.fillText('JIM ♥', w / 2, 46);
       ctx.textAlign = 'left';
     }
 
@@ -1193,10 +1473,10 @@
       ctx.fillStyle = PALETTE.orange;
       ctx.fillRect(46, 40, w - 46, 6);
       ctx.fillStyle = '#1b2a44';
-      ctx.font = '7px "Press Start 2P", monospace';
+      ctx.font = `bold 11px ${FONT}`;
       ctx.textAlign = 'center';
-      ctx.fillText('ANIMAL', 46 + (w - 46) / 2, 20);
-      ctx.fillText('CONTROL', 46 + (w - 46) / 2, 32);
+      ctx.fillText('ANIMAL', 46 + (w - 46) / 2, 21);
+      ctx.fillText('CONTROL', 46 + (w - 46) / 2, 34);
       ctx.textAlign = 'left';
       // Paw logo
       ctx.fillStyle = '#1b2a44';
@@ -1446,6 +1726,21 @@
       }
     }
 
+    hearts(x, y, count) {
+      for (let i = 0; i < count; i++) {
+        this.spawn({
+          x: x + rand(-10, 10), y: y + rand(-6, 6),
+          vx: rand(-30, 30), vy: rand(-120, -70),
+          life: 0.9, maxLife: 0.9,
+          size: 10 + Math.random() * 6,
+          color: i % 2 ? ART.heart : ART.bulbPink,
+          gravity: -30,
+          square: false,
+          shape: 'heart',
+        });
+      }
+    }
+
     dust(x, y, count) {
       for (let i = 0; i < count; i++) {
         this.spawn({
@@ -1482,7 +1777,14 @@
         ctx.globalAlpha = Math.min(1, t * 1.5);
         ctx.fillStyle = p.color;
         const s = p.size * (0.5 + t * 0.5);
-        if (p.square) {
+        if (p.shape === 'heart') {
+          const r = s / 2;
+          ctx.beginPath();
+          ctx.moveTo(p.x, p.y + r);
+          ctx.bezierCurveTo(p.x - r * 1.6, p.y - r * 0.4, p.x - r * 0.7, p.y - r * 1.5, p.x, p.y - r * 0.6);
+          ctx.bezierCurveTo(p.x + r * 0.7, p.y - r * 1.5, p.x + r * 1.6, p.y - r * 0.4, p.x, p.y + r);
+          ctx.fill();
+        } else if (p.square) {
           ctx.fillRect(p.x - s / 2, p.y - s / 2, s, s);
         } else {
           ctx.beginPath();
@@ -1518,7 +1820,7 @@
     }
 
     draw(ctx) {
-      ctx.font = '12px "Press Start 2P", monospace';
+      ctx.font = `bold 20px ${FONT}`;
       ctx.textAlign = 'center';
       for (const f of this.items) {
         ctx.globalAlpha = Math.min(1, f.life / f.maxLife * 2);
@@ -1549,7 +1851,7 @@
 
     reset() {
       // First obstacle shows up a comfortable distance ahead
-      this.nextObstacleX = CONFIG.WIDTH + 500;
+      this.nextObstacleX = this.game.view.w + 500;
       this.lastWasMoving = false;
     }
 
@@ -1567,7 +1869,7 @@
 
     update() {
       const g = this.game;
-      const spawnEdge = g.distance + CONFIG.WIDTH + 200;
+      const spawnEdge = g.distance + g.view.w + 200;
       while (this.nextObstacleX < spawnEdge) {
         const meters = g.distance / CONFIG.PX_PER_METER;
         const type = this.pickType(meters);
@@ -1584,7 +1886,7 @@
 
         // Moving obstacles close distance on their own: give them extra lead.
         if (def.speed > 0) {
-          const approachTime = (CONFIG.WIDTH + 200) / (speed + def.speed);
+          const approachTime = (g.view.w + 200) / (speed + def.speed);
           gap += def.speed * approachTime + 120;
         }
 
@@ -1640,6 +1942,8 @@
       this.canvas = document.getElementById('game');
       this.ctx = this.canvas.getContext('2d');
       this.stage = document.getElementById('stage');
+      // Camera: the visible logical rect is x in [0, w], y in [top, HEIGHT]. Bottom-anchored.
+      this.view = { w: CONFIG.WIDTH, h: CONFIG.HEIGHT, top: 0, scale: 1, dpr: 1 };
 
       this.dom = {
         overlay: document.getElementById('overlay'),
@@ -1653,6 +1957,7 @@
         finalHigh: document.getElementById('final-high'),
         btnStart: document.getElementById('btn-start'),
         btnMute: document.getElementById('btn-mute'),
+        btnFull: document.getElementById('btn-fullscreen'),
         hudScore: document.getElementById('hud-score'),
         hudHigh: document.getElementById('hud-high'),
         hudItems: document.getElementById('hud-items'),
@@ -1703,18 +2008,93 @@
       this.resize();
     }
 
+    /**
+     * Fit the camera to whatever shape the stage has. The 540px-tall play
+     * strip is always fully visible and anchored to the bottom; wide screens
+     * see more road ahead, tall (portrait) screens see more sky above.
+     */
     resize() {
       const rect = this.stage.getBoundingClientRect();
       if (rect.width < 1 || rect.height < 1) return;
-      const dpr = clamp(window.devicePixelRatio || 1, 1, 2.5);
+      const dpr = clamp(window.devicePixelRatio || 1, 1, 2);
       const bw = Math.round(rect.width * dpr);
       const bh = Math.round(rect.height * dpr);
       if (this.canvas.width !== bw || this.canvas.height !== bh) {
         this.canvas.width = bw;
         this.canvas.height = bh;
       }
-      this.scaleX = bw / CONFIG.WIDTH;
-      this.scaleY = bh / CONFIG.HEIGHT;
+      // CSS px per logical px: as large as possible while showing the full
+      // strip height and at least MIN_VIEW_W of road.
+      let scale = Math.min(rect.height / CONFIG.HEIGHT, rect.width / CONFIG.MIN_VIEW_W);
+      if (rect.width / scale > CONFIG.MAX_VIEW_W) scale = rect.width / CONFIG.MAX_VIEW_W;
+      const v = this.view;
+      v.scale = scale;
+      v.dpr = dpr;
+      v.w = rect.width / scale;
+      v.h = rect.height / scale;
+      v.top = CONFIG.HEIGHT - v.h;
+      // On narrow screens Jimothy stands further left so obstacles are seen earlier.
+      const p = this.player;
+      p.homeX = v.w < 720 ? CONFIG.PLAYER_X_NARROW : CONFIG.PLAYER_X;
+      if (!p.dead) p.x = p.homeX;
+      this.buildVignette();
+    }
+
+    /** The soft edge darkening is rendered once per resize instead of every frame. */
+    buildVignette() {
+      const v = this.view;
+      const c = this.vignette || document.createElement('canvas');
+      const w = Math.max(1, Math.round(v.w / 2));
+      const h = Math.max(1, Math.round(v.h / 2));
+      c.width = w;
+      c.height = h;
+      const g = c.getContext('2d');
+      const rad = Math.max(w, h);
+      const grad = g.createRadialGradient(w / 2, h / 2, rad * 0.35, w / 2, h / 2, rad * 0.8);
+      grad.addColorStop(0, 'rgba(40, 20, 50, 0)');
+      grad.addColorStop(1, 'rgba(40, 20, 50, 0.4)');
+      g.fillStyle = grad;
+      g.fillRect(0, 0, w, h);
+      this.vignette = c;
+    }
+
+    /* ----- Fullscreen ----- */
+
+    get fullscreenSupported() {
+      const el = this.stage;
+      return !!(el.requestFullscreen || el.webkitRequestFullscreen) && !!(document.fullscreenEnabled || document.webkitFullscreenEnabled);
+    }
+
+    get isFullscreen() {
+      return !!(document.fullscreenElement || document.webkitFullscreenElement);
+    }
+
+    toggleFullscreen() {
+      if (!this.fullscreenSupported) return;
+      try {
+        if (this.isFullscreen) {
+          const exit = document.exitFullscreen || document.webkitExitFullscreen;
+          const r = exit.call(document);
+          if (r && r.catch) r.catch(() => {});
+        } else {
+          const req = this.stage.requestFullscreen || this.stage.webkitRequestFullscreen;
+          const r = req.call(this.stage, { navigationUI: 'hide' });
+          if (r && r.catch) r.catch(() => {});
+        }
+      } catch (_) {
+        /* unsupported or denied: nothing to do */
+      }
+    }
+
+    updateFullscreenButton() {
+      const b = this.dom.btnFull;
+      if (!b) return;
+      b.hidden = !this.fullscreenSupported;
+      const on = this.isFullscreen;
+      b.classList.toggle('active', on);
+      b.setAttribute('aria-pressed', String(on));
+      b.title = on ? 'Exit fullscreen (F)' : 'Fullscreen (F)';
+      this.stage.classList.toggle('is-fullscreen', on);
     }
 
     /* ----- Input ----- */
@@ -1741,6 +2121,9 @@
             break;
           case 'KeyM':
             this.toggleMute();
+            break;
+          case 'KeyF':
+            this.toggleFullscreen();
             break;
           default:
             break;
@@ -1769,6 +2152,21 @@
         e.stopPropagation();
         this.toggleMute();
       });
+
+      if (this.dom.btnFull) {
+        this.dom.btnFull.addEventListener('pointerdown', (e) => e.stopPropagation());
+        this.dom.btnFull.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this.toggleFullscreen();
+        });
+      }
+      const onFullscreenChange = () => {
+        this.updateFullscreenButton();
+        this.resize();
+      };
+      document.addEventListener('fullscreenchange', onFullscreenChange);
+      document.addEventListener('webkitfullscreenchange', onFullscreenChange);
+      this.updateFullscreenButton();
 
       document.addEventListener('visibilitychange', () => {
         if (document.hidden && this.state === STATE.PLAYING) this.pause();
@@ -1808,7 +2206,7 @@
     updateMuteButton() {
       const muted = this.audio.muted;
       this.dom.btnMute.classList.toggle('muted', muted);
-      this.dom.btnMute.textContent = muted ? '✕' : '♪';
+      this.dom.btnMute.textContent = muted ? '🔇' : '🔊';
       this.dom.btnMute.setAttribute('aria-pressed', String(muted));
     }
 
@@ -1840,10 +2238,10 @@
       if (this.state !== STATE.PLAYING) return;
       this.state = STATE.PAUSED;
       this.showOverlay({
-        kicker: 'TAKING A BREATHER',
-        title: 'PAUSED',
+        kicker: 'Taking a breather',
+        title: 'Paused',
         sub: 'Jimothy is catching his breath behind a Ballard dumpster.',
-        button: 'RESUME',
+        button: 'Resume',
         stats: false,
       });
     }
@@ -1891,10 +2289,10 @@
 
     showStartOverlay() {
       this.showOverlay({
-        kicker: '♥ TEAM JIMOTHY ♥',
-        title: 'PRESS START',
+        kicker: '♥ Team Jimothy ♥',
+        title: 'Ready, Jimothy?',
         sub: "Ballard's roundest raccoon is hungry. The streets are not safe. Let's eat anyway.",
-        button: 'START',
+        button: 'Start',
         stats: false,
       });
     }
@@ -1905,15 +2303,16 @@
         'Jimothy will be back. Jimothy is always back.',
         'That pizza was worth it. Probably.',
         'Animal Control: 1. Jimothy: still the most Seattle animal possible.',
-        'Not very Hot Jimothy Summer of you.',
+        'A neighbor already left out a snack for next time.',
         'Somebody is already posting this to r/JimothyTheRaccoon.',
         'Bonked. Nobody saw. Nobody but you.',
+        'He is fine. He is a little embarrassed. He is fine.',
       ];
       this.showOverlay({
-        kicker: 'GAME OVER',
-        title: this.isNewRecord ? 'NEW RECORD!' : 'BONKED!',
+        kicker: this.isNewRecord ? '♥ New record ♥' : 'Oh no',
+        title: this.isNewRecord ? 'New record!' : 'Bonked!',
         sub: pick(quips),
-        button: 'RUN AGAIN',
+        button: 'Run again',
         stats: true,
         danger: !this.isNewRecord,
       });
@@ -1969,7 +2368,7 @@
 
       this.update(dt);
       const scroll = this.state === STATE.PLAYING ? this.speed : this.state === STATE.START ? CONFIG.BASE_SPEED * 0.5 : 0;
-      this.background.updateRain(dt, scroll);
+      this.background.updateRain(dt, scroll, this.view);
       this.render();
 
       requestAnimationFrame((t) => this.frame(t));
@@ -2067,19 +2466,22 @@
         c.type === 'PIZZA' ? [PALETTE.yellow, PALETTE.orange, '#c0392b']
         : c.type === 'DONUT' ? [PALETTE.pink, PALETTE.cyan, '#ffffff']
         : [PALETTE.cyan, '#ffffff', '#8fb3ff'];
-      this.particles.burst(cx, cy, 14, colors, 200, 0.55, 300);
-      this.texts.add(cx, cy - 10, `+${CONFIG.ITEM_POINTS}`, colors[0]);
+      this.particles.burst(cx, cy, 12, colors, 200, 0.55, 300);
+      this.particles.hearts(cx, cy - 6, 3);
+      this.texts.add(cx, cy - 14, `+${CONFIG.ITEM_POINTS}`, '#fff6e8');
     }
 
     /* ----- Render ----- */
 
     render() {
       const ctx = this.ctx;
-      ctx.setTransform(this.scaleX || 1, 0, 0, this.scaleY || 1, 0, 0);
+      const v = this.view;
+      const k = v.scale * v.dpr;
+      ctx.setTransform(k, 0, 0, k, 0, -v.top * k);
 
-      this.background.drawSky(ctx, this.time);
-      this.background.drawLayers(ctx, this.distance);
-      this.background.drawGround(ctx, this.distance);
+      this.background.drawSky(ctx, this.time, this.distance, v);
+      this.background.drawLayers(ctx, this.distance, v);
+      this.background.drawGround(ctx, this.distance, v);
 
       // Player shadow
       const p = this.player;
@@ -2094,17 +2496,10 @@
       p.draw(ctx, this.time);
       this.particles.draw(ctx);
       this.texts.draw(ctx);
-      this.background.drawRain(ctx);
+      this.background.drawRain(ctx, v);
 
-      // Vignette
-      const vig = ctx.createRadialGradient(
-        CONFIG.WIDTH / 2, CONFIG.HEIGHT / 2, CONFIG.HEIGHT * 0.45,
-        CONFIG.WIDTH / 2, CONFIG.HEIGHT / 2, CONFIG.HEIGHT * 0.95
-      );
-      vig.addColorStop(0, 'rgba(0,0,0,0)');
-      vig.addColorStop(1, 'rgba(0,0,0,0.45)');
-      ctx.fillStyle = vig;
-      ctx.fillRect(0, 0, CONFIG.WIDTH, CONFIG.HEIGHT);
+      // Soft vignette, warm rather than black (pre-rendered on resize)
+      if (this.vignette) ctx.drawImage(this.vignette, 0, v.top, v.w, v.h);
 
       if (this.state === STATE.PLAYING || this.state === STATE.PAUSED) this.drawRunInfo(ctx);
     }
@@ -2112,15 +2507,17 @@
     drawRunInfo(ctx) {
       const meters = Math.floor(this.distance / CONFIG.PX_PER_METER);
       const mult = (this.speed / CONFIG.BASE_SPEED).toFixed(1);
-      ctx.font = '10px "Press Start 2P", monospace';
+      const top = this.view.top;
+      ctx.font = `600 15px ${FONT}`;
       ctx.textAlign = 'left';
-      ctx.fillStyle = 'rgba(232, 230, 255, 0.75)';
-      ctx.fillText(`${meters} m`, 16, 26);
-      ctx.fillStyle = 'rgba(0, 240, 255, 0.75)';
-      ctx.fillText(`SPEED x${mult}`, 16, 44);
+      ctx.textBaseline = 'alphabetic';
+      ctx.fillStyle = 'rgba(255, 246, 232, 0.8)';
+      ctx.fillText(`${meters} m`, 16, top + 90);
+      ctx.fillStyle = 'rgba(255, 210, 122, 0.85)';
+      ctx.fillText(`speed x${mult}`, 16, top + 110);
       if (this.player.jumpsLeft === 1 && !this.player.onGround) {
-        ctx.fillStyle = 'rgba(255, 226, 77, 0.7)';
-        ctx.fillText('DOUBLE JUMP READY', 16, 62);
+        ctx.fillStyle = 'rgba(255, 179, 193, 0.9)';
+        ctx.fillText('double jump ready ♥', 16, top + 130);
       }
     }
   }
