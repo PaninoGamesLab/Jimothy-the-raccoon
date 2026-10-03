@@ -1726,7 +1726,7 @@
         const cx = this.x + this.w / 2;
         for (const p of platforms) {
           const px = p.screenX(distance);
-          if (cx >= px + 4 && cx <= px + p.w - 4 && prevFeet <= p.top + 6 && feet >= p.top) {
+          if (cx >= px + 4 && cx <= px + p.w - 4 && prevFeet <= p.top + 14 && feet >= p.top) {
             landedOn = p;
             floor = p.top;
             break;
@@ -2775,6 +2775,19 @@
       return pick(pool);
     }
 
+    /** Adds a snack unless one already sits (almost) on the same spot. */
+    addCollectible(type, worldX, y) {
+      for (const c of this.game.collectibles) {
+        if (Math.abs(c.worldX - worldX) < 36 && Math.abs(c.baseY - y) < 36) return;
+      }
+      this.game.collectibles.push(new Collectible(type, worldX, y));
+    }
+
+    /** Does any walkway overlap this world-x range? */
+    walkwayOver(x0, x1) {
+      return this.game.platforms.some((p) => p.worldX < x1 && p.worldX + p.w > x0);
+    }
+
     /** Is there a walkway over this world x? Returns its level, or 0. */
     walkwayLevelAt(worldX) {
       for (const p of this.game.platforms) {
@@ -2842,8 +2855,6 @@
       let level = 1;
       for (let i = 0; i < n; i++) {
         const w = randInt(220, 420);
-        if (canClimb && i > 0 && level === 1 && Math.random() < 0.45) level = 2;
-        else if (level === 2 && Math.random() < 0.3) level = 1;
         const p = new Platform(x, w, level, kind);
         g.platforms.push(p);
         // Snacks along the walkway: the reward for going up
@@ -2851,30 +2862,36 @@
           const count = clamp(Math.floor((w - 60) / 46), 2, 6);
           const sx = x + (w - count * 46) / 2 + 8;
           const t = pick(COLLECTIBLE_TYPES);
-          for (let k = 0; k < count; k++) g.collectibles.push(new Collectible(t, sx + k * 46, p.top - 56));
+          for (let k = 0; k < count; k++) this.addCollectible(t, sx + k * 46, p.top - 56);
         }
-        // Gaps scale with speed so a single jump always clears them
-        x += w + clamp(speed * rand(0.28, 0.48), 100, 320);
+        // Decide the next walkway's level first: a climb of one level shortens
+        // how far a single jump reaches, so gaps before a climb are sized to it.
+        let next = level;
+        if (canClimb && level === 1 && Math.random() < 0.45) next = 2;
+        else if (level === 2 && Math.random() < 0.3) next = 1;
+        const maxT = next > level ? 0.38 : 0.48;
+        x += w + clamp(speed * rand(0.28, maxT), 100, 320);
+        level = next;
       }
       this.nextPlatformX = x + rand(900, 1800) + speed * 1.5;
     }
 
     spawnCollectibles(obstacle, gap, def) {
-      const g = this.game;
       const roll = Math.random();
       const groundY = CONFIG.GROUND_Y;
       const type = pick(COLLECTIBLE_TYPES);
 
-      // Arc over a static obstacle: rewards a clean jump
-      if (def.speed === 0 && roll < 0.45) {
+      // Arc over a static obstacle: rewards a clean jump (not under a walkway,
+      // where it would run into the planks and the walkway's own snacks)
+      const span = def.w + 150;
+      const arcStart = obstacle.worldX + def.w / 2 - span / 2;
+      if (def.speed === 0 && roll < 0.45 && !this.walkwayOver(arcStart - 15, arcStart + span + 15)) {
         const n = 5;
-        const span = def.w + 150;
-        const startX = obstacle.worldX + def.w / 2 - span / 2;
         for (let i = 0; i < n; i++) {
           const t = i / (n - 1);
-          const x = startX + t * span;
+          const x = arcStart + t * span;
           const y = groundY - def.h - 50 - Math.sin(t * Math.PI) * 70;
-          g.collectibles.push(new Collectible(type, x - 15, y - 15));
+          this.addCollectible(type, x - 15, y - 15);
         }
       }
 
@@ -2889,9 +2906,7 @@
         const high = Math.random() < 0.3;
         const y = high ? groundY - 190 : groundY - 70 - Math.random() * 30;
         const rowType = pick(COLLECTIBLE_TYPES);
-        for (let i = 0; i < n; i++) {
-          g.collectibles.push(new Collectible(rowType, startX + i * 46, y));
-        }
+        for (let i = 0; i < n; i++) this.addCollectible(rowType, startX + i * 46, y);
       }
     }
   }
@@ -2941,6 +2956,7 @@
 
       // Input state for the hold-to-roll control
       this.kbRoll = false;
+      this.rollOnce = false; // a hold released before any frame could start its roll
       this.pointer = { held: false, start: 0, inAir: false, rolled: false, id: null };
       this.tipsShown = {};
 
@@ -3212,7 +3228,12 @@
         if (e && p.id !== null && e.pointerId !== undefined && e.pointerId !== p.id) return;
         p.held = false;
         const quick = performance.now() - p.start < CONFIG.HOLD_THRESHOLD * 1000;
-        if (!cancelled && this.state === STATE.PLAYING && !p.inAir && !p.rolled && quick) this.player.requestJump();
+        if (!cancelled && this.state === STATE.PLAYING && !p.inAir && !p.rolled) {
+          // A short press is a tap. A press past the threshold that no frame
+          // has turned into a roll yet (released between frames) still rolls.
+          if (quick) this.player.requestJump();
+          else this.rollOnce = true;
+        }
         p.rolled = false;
       };
       window.addEventListener('pointerup', (e) => release(e, false));
@@ -3319,6 +3340,7 @@
       this.platforms.length = 0;
       this.pointer.held = false;
       this.kbRoll = false;
+      this.rollOnce = false;
       this.particles.clear();
       this.texts.clear();
       this.player.reset();
@@ -3522,7 +3544,8 @@
       const pt = this.pointer;
       const heldLong = pt.held && performance.now() - pt.start >= CONFIG.HOLD_THRESHOLD * 1000;
       if (heldLong && !pt.inAir) pt.rolled = true;
-      this.player.wantRoll = this.kbRoll || heldLong;
+      this.player.wantRoll = this.kbRoll || heldLong || this.rollOnce;
+      this.rollOnce = false;
 
       this.spawner.update();
       this.player.update(dt, this.speed, this.audio, this.particles, this.platforms, this.distance);
