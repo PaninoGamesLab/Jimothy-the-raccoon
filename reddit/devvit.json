@@ -1,6 +1,9 @@
 {
   "$schema": "https://developers.reddit.com/schema/config-file.v1.json",
   "name": "jimothy-raccoon-run",
+  "dev": {
+    "subreddit": "jimothy_raccoon_r_dev"
+  },
   "post": {
     "dir": "public",
     "entrypoints": {
