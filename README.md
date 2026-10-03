@@ -36,7 +36,7 @@ This game is a fan tribute. In it, Jimothy does what Jimothy does: scurries thro
 | --- | --- | --- |
 | Jump | `Space`, `↑` or `W` | Tap the screen |
 | Double Jump | Press again while in the air | Tap again while in the air |
-| Roll (under seagulls) | Hold `↓`, `S` or `Shift` | Press and hold |
+| Roll (under seagulls) | Hold `↓` or `S` | Press and hold |
 | Dive | Hold `↓` while in the air | Keep holding after a mid-air tap |
 | Start / Restart | `Space` or `Enter` | Tap |
 | Pause / Resume | `P` or `Esc` | — |

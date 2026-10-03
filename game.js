@@ -31,6 +31,7 @@
     HOLD_THRESHOLD: 0.3,        // seconds a touch must last to count as a hold (roll / dive)
     ROLL_MIN_TIME: 0.35,        // a roll always lasts at least this long
     DIVE_GRAVITY: 2.2,          // gravity multiplier while holding in the air
+    PHYSICS_STEP: 1 / 120,      // player physics runs in fixed substeps (frame-rate independent)
     PLATFORM_LEVEL_H: 105,      // vertical distance between walkway levels
     PLATFORM_THICKNESS: 16,
     GROUND_Y: 450,              // y of the sidewalk surface (player's feet)
@@ -1690,11 +1691,6 @@
       }
 
       if (!this.onGround) {
-        const prevFeet = this.feet;
-        // Holding in the air is a dive: fall fast and land straight into a roll
-        const gravity = CONFIG.GRAVITY * (this.wantRoll && this.vy > -120 ? CONFIG.DIVE_GRAVITY : 1);
-        this.vy += gravity * dt;
-        this.y += this.vy * dt;
         if (this.flipping) {
           this.flipAngle += dt * 14;
           if (this.flipAngle >= Math.PI * 2) {
@@ -1702,39 +1698,58 @@
             this.flipping = false;
           }
         }
-
-        // Land on a walkway (one-way: only from above) or on the sidewalk
-        const feet = this.feet;
-        let landedOn = null;
-        let floor = CONFIG.GROUND_Y;
-        if (this.vy >= 0) {
-          const cx = this.x + this.w / 2;
-          for (const p of platforms) {
-            const px = p.screenX(distance);
-            if (cx >= px + 4 && cx <= px + p.w - 4 && prevFeet <= p.top + 6 && feet >= p.top) {
-              landedOn = p;
-              floor = p.top;
-              break;
-            }
-          }
-        }
-        if (landedOn || feet >= CONFIG.GROUND_Y) {
-          this.y = floor - this.h;
-          this.vy = 0;
-          this.onGround = true;
-          this.support = landedOn;
-          this.jumpsLeft = 2;
-          this.flipping = false;
-          this.flipAngle = 0;
-          this.squash = 0.72;
-          audio.land();
-          particles.dust(this.x + this.w / 2, floor, 8);
-          if (this.wantRoll && !this.rolling) this.startRoll(audio, particles);
+        // Fixed substeps: the jump arc and walkway landings must not depend on the frame rate
+        const steps = Math.max(1, Math.ceil(dt / CONFIG.PHYSICS_STEP));
+        const h = dt / steps;
+        for (let i = 0; i < steps && !this.onGround; i++) {
+          this.integrate(h, platforms, distance, audio, particles);
         }
       }
 
       // Squash & stretch eases back to neutral
       this.squash = lerp(this.squash, 1, Math.min(1, dt * 14));
+    }
+
+    /** One physics step while airborne: gravity, then landing on a walkway or the sidewalk. */
+    integrate(h, platforms, distance, audio, particles) {
+      const prevFeet = this.feet;
+      // Holding in the air is a dive: fall fast and land straight into a roll
+      const gravity = CONFIG.GRAVITY * (this.wantRoll && this.vy > -120 ? CONFIG.DIVE_GRAVITY : 1);
+      this.vy += gravity * h;
+      this.y += this.vy * h;
+
+      // Land on a walkway (one-way: only from above) or on the sidewalk
+      const feet = this.feet;
+      let landedOn = null;
+      let floor = CONFIG.GROUND_Y;
+      if (this.vy >= 0) {
+        const cx = this.x + this.w / 2;
+        for (const p of platforms) {
+          const px = p.screenX(distance);
+          if (cx >= px + 4 && cx <= px + p.w - 4 && prevFeet <= p.top + 6 && feet >= p.top) {
+            landedOn = p;
+            floor = p.top;
+            break;
+          }
+        }
+      }
+      if (landedOn || feet >= CONFIG.GROUND_Y) {
+        this.y = floor - this.h;
+        this.vy = 0;
+        this.onGround = true;
+        this.support = landedOn;
+        this.jumpsLeft = 2;
+        this.flipping = false;
+        this.flipAngle = 0;
+        this.squash = 0.72;
+        audio.land();
+        particles.dust(this.x + this.w / 2, floor, 8);
+        if (this.wantRoll) {
+          // A held dive wants a roll, not whatever jump got buffered on the way down
+          this.jumpBuffer = 0;
+          if (!this.rolling) this.startRoll(audio, particles);
+        }
+      }
     }
 
     die(speed) {
@@ -2744,6 +2759,7 @@
       // First obstacle shows up a comfortable distance ahead
       this.nextObstacleX = this.game.view.w + 500;
       this.nextPlatformX = this.game.view.w + 2200;
+      this.walkwaysOn = false;
       this.lastWasMoving = false;
     }
 
@@ -2774,6 +2790,11 @@
 
       // Walkways come first so seagulls can pick a lane over them
       if (metersNow >= 250) {
+        if (!this.walkwaysOn) {
+          // The first chain starts beyond the right edge, never mid-screen
+          this.walkwaysOn = true;
+          this.nextPlatformX = Math.max(this.nextPlatformX, spawnEdge + 300);
+        }
         while (this.nextPlatformX < spawnEdge) this.spawnWalkway(this.nextPlatformX, metersNow);
       }
 
@@ -2784,8 +2805,10 @@
         const speed = g.speed;
         const obstacle = new Obstacle(type, this.nextObstacleX);
         if (def.flying) {
-          // Half the gulls over a walkway fly at walkway height instead
-          const level = this.walkwayLevelAt(this.nextObstacleX);
+          // Gulls fly toward Jimothy, so judge the walkway where they will meet him,
+          // not where they spawn. Half the gulls over a walkway fly at its height.
+          const travel = def.speed * ((g.view.w - g.player.x) / (speed + def.speed));
+          const level = this.walkwayLevelAt(this.nextObstacleX - travel);
           obstacle.setLane(level > 0 && Math.random() < 0.5 ? level : 0);
         }
         g.obstacles.push(obstacle);
@@ -3143,19 +3166,18 @@
             break;
           case 'ArrowDown':
           case 'KeyS':
-          case 'ShiftLeft':
-          case 'ShiftRight':
-            e.preventDefault();
-            this.kbRoll = true;
+            // Only while playing, so the page can still scroll on the menus
+            if (this.state === STATE.PLAYING) {
+              e.preventDefault();
+              this.kbRoll = true;
+            }
             break;
           default:
             break;
         }
       });
       window.addEventListener('keyup', (e) => {
-        if (e.code === 'ArrowDown' || e.code === 'KeyS' || e.code === 'ShiftLeft' || e.code === 'ShiftRight') {
-          this.kbRoll = false;
-        }
+        if (e.code === 'ArrowDown' || e.code === 'KeyS') this.kbRoll = false;
       });
 
       // Pointer events cover mouse, touch and pen with one handler.
@@ -3171,28 +3193,41 @@
         }
         this.audio.unlock();
         const p = this.pointer;
+        if (p.held) return; // one finger drives; a second one is ignored
         const player = this.player;
         p.held = true;
         p.start = performance.now();
         p.id = e.pointerId;
         p.rolled = false;
-        p.inAir = !player.onGround && player.coyote <= 0;
-        if (p.inAir) player.requestJump();
+        p.inAir = !player.onGround;
+        if (p.inAir) {
+          // Just off a ledge (coyote time) this is still the full jump; otherwise
+          // the one air jump, if it is left. Nothing is buffered when neither applies.
+          if (player.coyote > 0 || player.jumpsLeft >= 1) player.requestJump();
+        }
       });
-      const release = (e) => {
+      const release = (e, cancelled) => {
         const p = this.pointer;
         if (!p.held) return;
         if (e && p.id !== null && e.pointerId !== undefined && e.pointerId !== p.id) return;
         p.held = false;
         const quick = performance.now() - p.start < CONFIG.HOLD_THRESHOLD * 1000;
-        if (this.state === STATE.PLAYING && !p.inAir && !p.rolled && quick) this.player.requestJump();
+        if (!cancelled && this.state === STATE.PLAYING && !p.inAir && !p.rolled && quick) this.player.requestJump();
         p.rolled = false;
       };
-      window.addEventListener('pointerup', release);
-      window.addEventListener('pointercancel', release);
+      window.addEventListener('pointerup', (e) => release(e, false));
+      window.addEventListener('pointercancel', (e) => release(e, true));
 
       // Older mobile browsers: make sure touches never scroll/zoom the stage.
-      this.stage.addEventListener('touchstart', (e) => e.preventDefault(), { passive: false });
+      this.stage.addEventListener(
+        'touchstart',
+        (e) => {
+          // Buttons inside the stage must still get their click
+          if (e.target && e.target.closest && e.target.closest('button')) return;
+          e.preventDefault();
+        },
+        { passive: false }
+      );
       this.stage.addEventListener('contextmenu', (e) => e.preventDefault());
 
       this.dom.btnStart.addEventListener('click', (e) => {
@@ -3229,6 +3264,7 @@
         }
       });
       window.addEventListener('blur', () => {
+        this.kbRoll = false;
         if (this.state === STATE.PLAYING) this.pause();
       });
     }
@@ -3312,6 +3348,8 @@
     resume() {
       if (this.state !== STATE.PAUSED) return;
       this.state = STATE.PLAYING;
+      this.kbRoll = false;
+      this.pointer.held = false;
       this.dom.overlay.classList.add('hidden');
       this.dom.btnStart.blur();
       this.lastFrame = performance.now();
