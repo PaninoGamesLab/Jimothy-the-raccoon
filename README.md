@@ -36,6 +36,8 @@ This game is a fan tribute. In it, Jimothy does what Jimothy does: scurries thro
 | --- | --- | --- |
 | Jump | `Space`, `↑` or `W` | Tap the screen |
 | Double Jump | Press again while in the air | Tap again while in the air |
+| Roll (under seagulls) | Hold `↓`, `S` or `Shift` | Press and hold |
+| Dive | Hold `↓` while in the air | Keep holding after a mid-air tap |
 | Start / Restart | `Space` or `Enter` | Tap |
 | Pause / Resume | `P` or `Esc` | — |
 | Mute / Unmute | `M` | Tap the 🔊 button |
@@ -54,10 +56,12 @@ This game is a fan tribute. In it, Jimothy does what Jimothy does: scurries thro
 | 🗑 **Trash cans** | Stationary. Single cans, pairs, and a chunky green dumpster. |
 | 🐈 **Alley cats** | Run *toward* you, faster than the ground scrolls. Low profile, but quick. |
 | 🚚 **Animal Control trucks** | Long, tall and coming at you with the lights on. Jump early and double jump if you need the hang time. |
+| 🐦 **Seagulls** | Fly at head height, over the sidewalk or over a walkway. Hold to roll under them. |
 
 ### Tips from Jimothy
 
-- The game ramps up. Speed climbs steadily over the first couple of minutes and then levels off, so the longer you survive the faster you must react.
+- The game ramps up slowly. Speed climbs gently over several minutes and then levels off, so the longer you survive the faster you must react.
+- **Walkways** show up after a few hundred meters: scaffolds and catwalks you can jump onto and run along. They carry extra snacks and keep you above the trucks, but gulls patrol that height too. After about 700 meters some chains climb to a second level, which needs a double jump.
 - Trucks and cats close distance on their own. Jump a beat earlier than you think you need to.
 - A **double jump mid-flip** gives you the extra height to grab the high rows of snacks.
 - There is a little **coyote time** after you run off a surface and a **jump buffer** if you press slightly early, so inputs feel fair even at top speed.

@@ -28,11 +28,16 @@
     PLAYER_X: 150,              // player's left edge on wide screens
     PLAYER_X_NARROW: 100,       // ...and on narrow screens, to keep reaction time
     SPRITE_SCALE: 0.8,          // illustration units -> logical px
+    HOLD_THRESHOLD: 0.12,       // seconds a touch must last to count as a hold (roll)
+    ROLL_MIN_TIME: 0.35,        // a roll always lasts at least this long
+    DIVE_GRAVITY: 2.2,          // gravity multiplier while holding in the air
+    PLATFORM_LEVEL_H: 105,      // vertical distance between walkway levels
+    PLATFORM_THICKNESS: 16,
     GROUND_Y: 450,              // y of the sidewalk surface (player's feet)
     PX_PER_METER: 20,           // 1 point per "meter"
     BASE_SPEED: 340,            // px / s at the start
-    SPEED_GAIN: 440,            // asymptotic extra speed
-    SPEED_RAMP_TIME: 70,        // seconds for ~63% of the ramp
+    SPEED_GAIN: 420,            // asymptotic extra speed
+    SPEED_RAMP_TIME: 160,       // seconds for ~63% of the ramp: the city speeds up slowly
     GRAVITY: 2400,
     JUMP_VELOCITY: -780,
     DOUBLE_JUMP_VELOCITY: -660,
@@ -298,6 +303,42 @@
       this.tone({ freq: 440, type: 'square', dur: 0.08, gain: 0.15 });
       this.tone({ freq: 660, type: 'square', dur: 0.08, gain: 0.15, delay: 0.08 });
       this.tone({ freq: 880, type: 'square', dur: 0.18, gain: 0.15, delay: 0.16 });
+    }
+
+    /** Tucking into a roll: a short, soft whoosh. */
+    roll() {
+      this.noise({ dur: 0.22, gain: 0.14, cutoff: 900 });
+      this.tone({ freq: 300, slide: 140, type: 'triangle', dur: 0.18, gain: 0.08 });
+    }
+
+    /** A seagull's "kee-ah", off to the right where it comes from. */
+    gull(pan = 0.8) {
+      if (!this.ready) return;
+      const ctx = this.ctx;
+      const t0 = ctx.currentTime;
+      const out = this.panner(pan, pan - 0.4, 0.5);
+      const notes = [
+        { f0: 1500, f1: 1050, at: 0, dur: 0.17 },
+        { f0: 1250, f1: 780, at: 0.2, dur: 0.24 },
+      ];
+      for (const n of notes) {
+        const osc = ctx.createOscillator();
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(n.f0, t0 + n.at);
+        osc.frequency.exponentialRampToValueAtTime(n.f1, t0 + n.at + n.dur);
+        const filter = ctx.createBiquadFilter();
+        filter.type = 'bandpass';
+        filter.Q.value = 2.5;
+        filter.frequency.setValueAtTime(n.f0 * 1.2, t0 + n.at);
+        filter.frequency.exponentialRampToValueAtTime(n.f1 * 1.2, t0 + n.at + n.dur);
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(0.0001, t0 + n.at);
+        g.gain.linearRampToValueAtTime(0.09, t0 + n.at + 0.03);
+        g.gain.linearRampToValueAtTime(0.0001, t0 + n.at + n.dur);
+        osc.connect(filter).connect(g).connect(out);
+        osc.start(t0 + n.at);
+        osc.stop(t0 + n.at + n.dur + 0.05);
+      }
     }
 
     /**
@@ -1541,16 +1582,30 @@
       this.dead = false;
       this.deadRot = 0;
       this.vx = 0;
+      this.rolling = false;
+      this.rollTime = 0;
+      this.rollAngle = 0;
+      this.wantRoll = false;  // set by the game from the input state each frame
+      this.support = null;    // the walkway Jimothy stands on, or null for the sidewalk
     }
 
     /** Tight, forgiving hitbox: covers the round body, not the fur tufts or legs' reach. */
     get hitbox() {
+      if (this.rolling) {
+        // Tucked into a ball: low enough to pass under a seagull
+        return { x: this.x + this.w * 0.25, y: this.y + this.h * 0.55, w: this.w * 0.5, h: this.h * 0.45 };
+      }
       if (this.sheet) {
         // The fluffy coat and head poke past this box on purpose: a brush
         // with fur should never count as a hit.
         return { x: this.x + this.w * 0.19, y: this.y + this.h * 0.14, w: this.w * 0.62, h: this.h * 0.86 };
       }
       return { x: this.x + 12, y: this.y + 8, w: this.w - 26, h: this.h - 10 };
+    }
+
+    /** The surface Jimothy is standing on, or would land on, directly below him. */
+    get feet() {
+      return this.y + this.h;
     }
 
     requestJump() {
@@ -1561,18 +1616,23 @@
       if (this.dead) return false;
       const canGroundJump = this.onGround || this.coyote > 0;
       if (canGroundJump && this.jumpsLeft >= 2) {
+        const from = this.feet;
         this.vy = CONFIG.JUMP_VELOCITY;
         this.onGround = false;
+        this.support = null;
         this.coyote = 0;
         this.jumpsLeft = 1;
+        this.rolling = false;
         this.squash = 1.25;
         audio.jump();
-        particles.dust(this.x + this.w / 2, CONFIG.GROUND_Y, 6);
+        particles.dust(this.x + this.w / 2, from, 6);
         return true;
       }
-      if (!this.onGround && this.jumpsLeft === 1) {
+      // One air jump: the double jump, or the only jump after running off an edge.
+      if (!this.onGround && this.jumpsLeft >= 1) {
         this.vy = CONFIG.DOUBLE_JUMP_VELOCITY;
         this.jumpsLeft = 0;
+        this.rolling = false;
         this.flipping = true;
         this.flipAngle = 0;
         audio.doubleJump();
@@ -1582,7 +1642,16 @@
       return false;
     }
 
-    update(dt, speed, audio, particles) {
+    startRoll(audio, particles) {
+      this.rolling = true;
+      this.rollTime = 0;
+      this.rollAngle = 0;
+      this.squash = 0.85;
+      audio.roll();
+      particles.dust(this.x + this.w / 2, this.feet, 6);
+    }
+
+    update(dt, speed, audio, particles, platforms = [], distance = 0) {
       if (this.dead) {
         this.vy += CONFIG.GRAVITY * dt;
         this.y += this.vy * dt;
@@ -1599,8 +1668,32 @@
         if (this.tryJump(audio, particles)) this.jumpBuffer = 0;
       }
 
+      // Still on the walkway? Running off its end starts a fall (with coyote time).
+      if (this.onGround && this.support) {
+        const px = this.support.screenX(distance);
+        const cx = this.x + this.w / 2;
+        if (cx < px + 4 || cx > px + this.support.w - 4) {
+          this.onGround = false;
+          this.support = null;
+          this.coyote = CONFIG.COYOTE_TIME;
+          this.vy = 0;
+        }
+      }
+
+      // Rolling: starts when held on the ground, ends on release (after a minimum)
+      if (this.wantRoll && this.onGround && !this.rolling) this.startRoll(audio, particles);
+      if (this.rolling) {
+        this.rollTime += dt;
+        this.rollAngle += dt * 13;
+        if (!this.wantRoll && this.rollTime >= CONFIG.ROLL_MIN_TIME) this.rolling = false;
+        if (this.onGround && Math.random() < dt * 18) particles.dust(this.x + this.w * 0.3, this.feet, 1);
+      }
+
       if (!this.onGround) {
-        this.vy += CONFIG.GRAVITY * dt;
+        const prevFeet = this.feet;
+        // Holding in the air is a dive: fall fast and land straight into a roll
+        const gravity = CONFIG.GRAVITY * (this.wantRoll && this.vy > -120 ? CONFIG.DIVE_GRAVITY : 1);
+        this.vy += gravity * dt;
         this.y += this.vy * dt;
         if (this.flipping) {
           this.flipAngle += dt * 14;
@@ -1609,17 +1702,34 @@
             this.flipping = false;
           }
         }
-        const floor = CONFIG.GROUND_Y - this.h;
-        if (this.y >= floor) {
-          this.y = floor;
+
+        // Land on a walkway (one-way: only from above) or on the sidewalk
+        const feet = this.feet;
+        let landedOn = null;
+        let floor = CONFIG.GROUND_Y;
+        if (this.vy >= 0) {
+          const cx = this.x + this.w / 2;
+          for (const p of platforms) {
+            const px = p.screenX(distance);
+            if (cx >= px + 4 && cx <= px + p.w - 4 && prevFeet <= p.top + 6 && feet >= p.top) {
+              landedOn = p;
+              floor = p.top;
+              break;
+            }
+          }
+        }
+        if (landedOn || feet >= CONFIG.GROUND_Y) {
+          this.y = floor - this.h;
           this.vy = 0;
           this.onGround = true;
+          this.support = landedOn;
           this.jumpsLeft = 2;
           this.flipping = false;
           this.flipAngle = 0;
           this.squash = 0.72;
           audio.land();
-          particles.dust(this.x + this.w / 2, CONFIG.GROUND_Y, 8);
+          particles.dust(this.x + this.w / 2, floor, 8);
+          if (this.wantRoll && !this.rolling) this.startRoll(audio, particles);
         }
       }
 
@@ -1645,6 +1755,19 @@
       const airborne = !this.onGround;
       const hop = airborne || this.dead ? 0 : Math.abs(Math.sin(this.runPhase)) * 6;
       const lean = airborne ? clamp(this.vy / 2600, -0.3, 0.35) : -0.06 + Math.sin(this.runPhase * 2) * 0.03;
+
+      if (this.sheet && this.rolling && !this.dead) {
+        // Tucked into a ball and tumbling forward
+        const S = this.spriteScale * 0.62;
+        ctx.save();
+        ctx.translate(cx, feet - 30);
+        ctx.rotate(this.rollAngle);
+        ctx.scale(S, S);
+        ctx.translate(-12, 52); // the illustration's body centre -> origin
+        this.sheet.draw(ctx, 'jump', 0);
+        ctx.restore();
+        return;
+      }
 
       if (this.sheet) {
         const pose = this.dead ? 'dead' : airborne ? (this.vy < 0 ? 'jump' : 'fall') : 'run';
@@ -1839,7 +1962,11 @@
     DUMPSTER: { w: 112, h: 58, speed: 0, inset: 6, minMeters: 150 },
     CAT: { w: 56, h: 36, speed: 110, inset: 7, minMeters: 100 },
     TRUCK: { w: 150, h: 74, speed: 150, inset: 8, minMeters: 260 },
+    SEAGULL: { w: 58, h: 34, speed: 70, inset: 6, minMeters: 180, flying: true },
   });
+
+  /** Vertical clearance under a flying obstacle: a roll fits, a standing Jimothy does not. */
+  const FLY_CLEARANCE = 62;
 
   class Obstacle {
     /**
@@ -1859,6 +1986,15 @@
       this.variant = Math.random();
       this.dead = false;
       this.announced = false;
+      this.lane = 0;
+      if (def.flying) this.setLane(0);
+    }
+
+    /** Flying obstacles hover just above head height over the sidewalk (lane 0) or a walkway level. */
+    setLane(lane) {
+      this.lane = lane;
+      const surface = CONFIG.GROUND_Y - lane * CONFIG.PLATFORM_LEVEL_H;
+      this.y = surface - FLY_CLEARANCE - this.h;
     }
 
     screenX(distance) {
@@ -1897,10 +2033,85 @@
         case 'TRUCK':
           this.drawTruck(ctx, time);
           break;
+        case 'SEAGULL':
+          this.drawSeagull(ctx, time);
+          break;
         default:
           break;
       }
       ctx.restore();
+    }
+
+    drawSeagull(ctx, time) {
+      const w = this.w;
+      const h = this.h;
+      const flap = Math.sin(this.phase * 1.6);
+      ctx.translate(0, Math.sin(this.phase * 0.8) * 3);
+      const bodyCx = w * 0.5;
+      const bodyCy = h * 0.6;
+
+      // Wings: hinged at the shoulders, flapping
+      const drawWing = (dir) => {
+        ctx.save();
+        ctx.translate(bodyCx + dir * 4, bodyCy - 4);
+        ctx.rotate(dir * (-0.25 - flap * 0.7));
+        ctx.fillStyle = '#d9d5cc';
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.quadraticCurveTo(dir * 14, -10, dir * 30, -6);
+        ctx.quadraticCurveTo(dir * 20, 2, 0, 6);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = '#2e2b29';
+        ctx.beginPath();
+        ctx.moveTo(dir * 22, -8);
+        ctx.quadraticCurveTo(dir * 27, -8, dir * 30, -6);
+        ctx.quadraticCurveTo(dir * 26, -3, dir * 20, -2);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+      };
+      drawWing(1);
+      // Body
+      ctx.fillStyle = '#f4f1ea';
+      ctx.beginPath();
+      ctx.ellipse(bodyCx, bodyCy, 17, 8, 0.05, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#cfcbc2';
+      ctx.beginPath();
+      ctx.ellipse(bodyCx + 3, bodyCy - 3, 13, 4, 0.05, 0, Math.PI * 2);
+      ctx.fill();
+      // Tail feathers
+      ctx.fillStyle = '#e8e4dc';
+      ctx.beginPath();
+      ctx.moveTo(bodyCx + 14, bodyCy - 2);
+      ctx.lineTo(bodyCx + 26, bodyCy - 6);
+      ctx.lineTo(bodyCx + 25, bodyCy + 3);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = '#2e2b29';
+      ctx.fillRect(bodyCx + 23, bodyCy - 5, 3, 2);
+      // Head, facing left toward Jimothy
+      ctx.fillStyle = '#f7f4ee';
+      ctx.beginPath();
+      ctx.arc(bodyCx - 16, bodyCy - 5, 6.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = PALETTE.orange;
+      ctx.beginPath();
+      ctx.moveTo(bodyCx - 21, bodyCy - 6);
+      ctx.lineTo(bodyCx - 31, bodyCy - 3);
+      ctx.lineTo(bodyCx - 21, bodyCy - 2);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = '#1b1917';
+      ctx.beginPath();
+      ctx.arc(bodyCx - 18, bodyCy - 7, 1.4, 0, Math.PI * 2);
+      ctx.fill();
+      // Feet tucked under
+      ctx.fillStyle = PALETTE.orange;
+      ctx.fillRect(bodyCx - 2, bodyCy + 6, 3, 4);
+      ctx.fillRect(bodyCx + 4, bodyCy + 6, 3, 4);
+      drawWing(-1);
     }
 
     drawCan(ctx, ox, lidAskew) {
@@ -2123,6 +2334,96 @@
   }
 
   /* --------------------------------------------------------------------- */
+
+  const PLATFORM_KINDS = ['scaffold', 'catwalk'];
+
+  /** A walkway Jimothy can jump onto and run along. One-way: he passes through from below. */
+  class Platform {
+    constructor(worldX, w, level, kind) {
+      this.worldX = worldX;
+      this.w = w;
+      this.level = level;
+      this.kind = kind;
+      this.top = CONFIG.GROUND_Y - level * CONFIG.PLATFORM_LEVEL_H;
+      this.dead = false;
+      this.announced = false;
+    }
+
+    screenX(distance) {
+      return this.worldX - distance;
+    }
+
+    update(distance) {
+      if (this.screenX(distance) + this.w < -80) this.dead = true;
+    }
+
+    draw(ctx, distance, time) {
+      const x = this.screenX(distance);
+      const y = this.top;
+      const w = this.w;
+      const th = CONFIG.PLATFORM_THICKNESS;
+      const gy = CONFIG.GROUND_Y;
+      ctx.save();
+      if (this.kind === 'scaffold') {
+        // Timber posts down to the sidewalk, with a diagonal brace
+        ctx.fillStyle = '#6a5340';
+        for (let px = x + 10; px < x + w - 8; px += 120) ctx.fillRect(px, y + th, 7, gy - y - th);
+        ctx.fillRect(x + w - 17, y + th, 7, gy - y - th);
+        ctx.strokeStyle = '#5a4535';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(x + 14, y + th + 8);
+        ctx.lineTo(x + Math.min(w - 14, 130), gy - 10);
+        ctx.stroke();
+        // Rail behind the walkway
+        ctx.fillStyle = '#8a6d52';
+        for (let px = x + 4; px < x + w; px += 60) ctx.fillRect(px, y - 34, 4, 34);
+        ctx.fillRect(x, y - 36, w, 4);
+        ctx.fillRect(x, y - 20, w, 3);
+        // Planks
+        ctx.fillStyle = '#b07a4e';
+        roundRect(ctx, x, y, w, th, 3);
+        ctx.fill();
+        ctx.fillStyle = '#8f5f3a';
+        for (let px = x + 46; px < x + w - 4; px += 46) ctx.fillRect(px, y + 2, 2, th - 4);
+        ctx.fillStyle = '#d6a070';
+        ctx.fillRect(x + 2, y, w - 4, 3);
+        // A warm lantern hanging at the start
+        ctx.save();
+        ctx.fillStyle = ART.windowWarm;
+        ctx.shadowColor = ART.windowWarm;
+        ctx.shadowBlur = 12;
+        ctx.fillRect(x + 6, y - 30, 6, 8);
+        ctx.restore();
+      } else {
+        // Green-painted metal catwalk
+        ctx.fillStyle = '#4b5f58';
+        for (let px = x + 12; px < x + w - 8; px += 140) ctx.fillRect(px, y + th, 6, gy - y - th);
+        ctx.fillRect(x + w - 18, y + th, 6, gy - y - th);
+        ctx.fillStyle = '#7fa193';
+        for (let px = x + 4; px < x + w; px += 54) ctx.fillRect(px, y - 32, 3, 32);
+        ctx.fillRect(x, y - 34, w, 3);
+        ctx.fillRect(x, y - 18, w, 2);
+        ctx.fillStyle = '#6f8f82';
+        roundRect(ctx, x, y, w, th, 4);
+        ctx.fill();
+        ctx.fillStyle = '#5c7a6e';
+        for (let px = x + 10; px < x + w - 6; px += 16) ctx.fillRect(px, y + 5, 8, 2);
+        ctx.fillStyle = '#9dbcae';
+        ctx.fillRect(x + 2, y, w - 4, 3);
+        // Flower box on the rail
+        ctx.fillStyle = ART.trunk;
+        ctx.fillRect(x + w / 2 - 18, y - 24, 36, 6);
+        for (let f = 0; f < 5; f++) {
+          ctx.fillStyle = f % 2 ? ART.bulbPink : ART.heart;
+          ctx.beginPath();
+          ctx.arc(x + w / 2 - 14 + f * 7, y - 26 + Math.sin(time * 2 + f) * 0.5, 2.4, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+      ctx.restore();
+    }
+  }
 
   const COLLECTIBLE_TYPES = ['PIZZA', 'DONUT', 'SHINY'];
 
@@ -2395,15 +2696,15 @@
       this.items = [];
     }
 
-    add(x, y, text, color) {
-      this.items.push({ x, y, text, color, life: 0.8, maxLife: 0.8 });
+    add(x, y, text, color, life = 0.8) {
+      this.items.push({ x, y, text, color, life, maxLife: life, rise: life > 1.2 ? 12 : 50 });
     }
 
     update(dt, scroll) {
       for (let i = this.items.length - 1; i >= 0; i--) {
         const f = this.items[i];
         f.life -= dt;
-        f.y -= 50 * dt;
+        f.y -= f.rise * dt;
         f.x -= scroll * 0.3 * dt;
         if (f.life <= 0) this.items.splice(i, 1);
       }
@@ -2442,6 +2743,7 @@
     reset() {
       // First obstacle shows up a comfortable distance ahead
       this.nextObstacleX = this.game.view.w + 500;
+      this.nextPlatformX = this.game.view.w + 2200;
       this.lastWasMoving = false;
     }
 
@@ -2450,22 +2752,42 @@
       for (const [name, def] of Object.entries(OBSTACLE_TYPES)) {
         if (meters >= def.minMeters) {
           // Weight: cans common, trucks rarer
-          const weight = name === 'TRUCK' ? 1.3 : name === 'CAT' ? 1.6 : name === 'DUMPSTER' ? 1.2 : 2;
+          const weight = name === 'TRUCK' ? 1.3 : name === 'CAT' ? 1.6 : name === 'DUMPSTER' ? 1.2 : name === 'SEAGULL' ? 1.5 : 2;
           for (let i = 0; i < Math.round(weight * 10); i++) pool.push(name);
         }
       }
       return pick(pool);
     }
 
+    /** Is there a walkway over this world x? Returns its level, or 0. */
+    walkwayLevelAt(worldX) {
+      for (const p of this.game.platforms) {
+        if (worldX >= p.worldX - 40 && worldX <= p.worldX + p.w + 40) return p.level;
+      }
+      return 0;
+    }
+
     update() {
       const g = this.game;
       const spawnEdge = g.distance + g.view.w + 200;
+      const metersNow = g.distance / CONFIG.PX_PER_METER;
+
+      // Walkways come first so seagulls can pick a lane over them
+      if (metersNow >= 250) {
+        while (this.nextPlatformX < spawnEdge) this.spawnWalkway(this.nextPlatformX, metersNow);
+      }
+
       while (this.nextObstacleX < spawnEdge) {
         const meters = g.distance / CONFIG.PX_PER_METER;
         const type = this.pickType(meters);
         const def = OBSTACLE_TYPES[type];
         const speed = g.speed;
         const obstacle = new Obstacle(type, this.nextObstacleX);
+        if (def.flying) {
+          // Half the gulls over a walkway fly at walkway height instead
+          const level = this.walkwayLevelAt(this.nextObstacleX);
+          obstacle.setLane(level > 0 && Math.random() < 0.5 ? level : 0);
+        }
         g.obstacles.push(obstacle);
 
         // Gap in seconds of travel, shrinking a little as the player gets further
@@ -2484,6 +2806,34 @@
         this.nextObstacleX += gap;
         this.lastWasMoving = def.speed > 0;
       }
+    }
+
+    /** A chain of 2-4 walkways, climbing to the second level once the run is long enough. */
+    spawnWalkway(startX, meters) {
+      const g = this.game;
+      const speed = g.speed;
+      const n = randInt(2, 4);
+      const kind = pick(PLATFORM_KINDS);
+      const canClimb = meters >= 700;
+      let x = startX;
+      let level = 1;
+      for (let i = 0; i < n; i++) {
+        const w = randInt(220, 420);
+        if (canClimb && i > 0 && level === 1 && Math.random() < 0.45) level = 2;
+        else if (level === 2 && Math.random() < 0.3) level = 1;
+        const p = new Platform(x, w, level, kind);
+        g.platforms.push(p);
+        // Snacks along the walkway: the reward for going up
+        if (Math.random() < 0.8) {
+          const count = clamp(Math.floor((w - 60) / 46), 2, 6);
+          const sx = x + (w - count * 46) / 2 + 8;
+          const t = pick(COLLECTIBLE_TYPES);
+          for (let k = 0; k < count; k++) g.collectibles.push(new Collectible(t, sx + k * 46, p.top - 56));
+        }
+        // Gaps scale with speed so a single jump always clears them
+        x += w + clamp(speed * rand(0.28, 0.48), 100, 320);
+      }
+      this.nextPlatformX = x + rand(900, 1800) + speed * 1.5;
     }
 
     spawnCollectibles(obstacle, gap, def) {
@@ -2561,6 +2911,12 @@
       this.spawner = new Spawner(this);
       this.obstacles = [];
       this.collectibles = [];
+      this.platforms = [];
+
+      // Input state for the hold-to-roll control
+      this.kbRoll = false;
+      this.pointer = { held: false, start: 0, inAir: false, rolled: false, id: null };
+      this.tipsShown = {};
 
       this.state = STATE.START;
       this.time = 0;          // total wall time (for animations)
@@ -2715,17 +3071,54 @@
           case 'KeyF':
             this.toggleFullscreen();
             break;
+          case 'ArrowDown':
+          case 'KeyS':
+          case 'ShiftLeft':
+          case 'ShiftRight':
+            e.preventDefault();
+            this.kbRoll = true;
+            break;
           default:
             break;
         }
       });
+      window.addEventListener('keyup', (e) => {
+        if (e.code === 'ArrowDown' || e.code === 'KeyS' || e.code === 'ShiftLeft' || e.code === 'ShiftRight') {
+          this.kbRoll = false;
+        }
+      });
 
       // Pointer events cover mouse, touch and pen with one handler.
+      // While playing: a short press jumps (on release), a hold rolls, and a
+      // press in the air double-jumps at once (keep holding to dive).
       this.stage.addEventListener('pointerdown', (e) => {
         if (e.pointerType === 'mouse' && e.button !== 0) return;
         e.preventDefault();
-        this.primaryAction();
+        if (this.state !== STATE.PLAYING) {
+          this.primaryAction();
+          return;
+        }
+        this.audio.unlock();
+        const p = this.pointer;
+        const player = this.player;
+        p.held = true;
+        p.start = performance.now();
+        p.id = e.pointerId;
+        p.rolled = false;
+        p.inAir = !player.onGround && player.coyote <= 0;
+        if (p.inAir) player.requestJump();
       });
+      const release = (e) => {
+        const p = this.pointer;
+        if (!p.held) return;
+        if (e && p.id !== null && e.pointerId !== undefined && e.pointerId !== p.id) return;
+        p.held = false;
+        const quick = performance.now() - p.start < CONFIG.HOLD_THRESHOLD * 1000;
+        if (this.state === STATE.PLAYING && !p.inAir && !p.rolled && quick) this.player.requestJump();
+        p.rolled = false;
+      };
+      window.addEventListener('pointerup', release);
+      window.addEventListener('pointercancel', release);
 
       // Older mobile browsers: make sure touches never scroll/zoom the stage.
       this.stage.addEventListener('touchstart', (e) => e.preventDefault(), { passive: false });
@@ -2813,6 +3206,9 @@
       this.isNewRecord = false;
       this.obstacles.length = 0;
       this.collectibles.length = 0;
+      this.platforms.length = 0;
+      this.pointer.held = false;
+      this.kbRoll = false;
       this.particles.clear();
       this.texts.clear();
       this.player.reset();
@@ -2827,6 +3223,9 @@
     pause() {
       if (this.state !== STATE.PLAYING) return;
       this.state = STATE.PAUSED;
+      this.pointer.held = false;
+      this.kbRoll = false;
+      this.player.wantRoll = false;
       this.showOverlay({
         kicker: 'Taking a breather',
         title: 'Paused',
@@ -3002,8 +3401,28 @@
       this.speed = CONFIG.BASE_SPEED + CONFIG.SPEED_GAIN * ramp;
       this.distance += this.speed * dt;
 
-      this.player.update(dt, this.speed, this.audio, this.particles);
+      // Hold-to-roll: keyboard keys, a long touch, or any touch that began in the air (dive)
+      const pt = this.pointer;
+      const heldLong = pt.held && !pt.inAir && performance.now() - pt.start >= CONFIG.HOLD_THRESHOLD * 1000;
+      if (heldLong) pt.rolled = true;
+      this.player.wantRoll = this.kbRoll || heldLong || (pt.held && pt.inAir);
+
       this.spawner.update();
+      this.player.update(dt, this.speed, this.audio, this.particles, this.platforms, this.distance);
+
+      // Walkways
+      for (let i = this.platforms.length - 1; i >= 0; i--) {
+        const pl = this.platforms[i];
+        pl.update(this.distance);
+        if (pl.dead) {
+          this.platforms.splice(i, 1);
+          continue;
+        }
+        if (!pl.announced && pl.screenX(this.distance) < this.view.w + 20) {
+          pl.announced = true;
+          this.tip('Jump up and run along it!');
+        }
+      }
 
       const playerBox = this.player.hitbox;
 
@@ -3051,7 +3470,7 @@
       this.updateHud();
     }
 
-    /** Sound cue the moment a cat or the Animal Control truck enters the screen. */
+    /** Sound cue the moment a cat, gull or the Animal Control truck enters the screen. */
     announceObstacle(o) {
       if (o.type === 'CAT') {
         this.audio.meow(0.7);
@@ -3059,7 +3478,18 @@
         // Long enough for the truck to drive right across the screen
         const crossing = (this.view.w + o.w) / (this.speed + o.ownSpeed);
         this.audio.siren(crossing, 0.9, -0.6);
+      } else if (o.type === 'SEAGULL') {
+        this.audio.gull(0.8);
+        this.tip('Hold to roll under it!');
       }
+    }
+
+    /** A one-time hint floating above Jimothy. */
+    tip(text) {
+      if (this.tipsShown[text]) return;
+      this.tipsShown[text] = true;
+      const p = this.player;
+      this.texts.add(p.x + p.w / 2, p.y - 26, text, ART.windowWarm, 2.4);
     }
 
     collect(c) {
@@ -3088,12 +3518,20 @@
       this.background.drawLayers(ctx, this.distance, v);
       this.background.drawGround(ctx, this.distance, v);
 
-      // Player shadow
+      for (const pl of this.platforms) pl.draw(ctx, this.distance, this.time);
+
+      // Player shadow, cast on whatever surface is below him
       const p = this.player;
-      const shadowScale = clamp(1 - (CONFIG.GROUND_Y - (p.y + p.h)) / 260, 0.35, 1);
+      const pcx = p.x + p.w / 2;
+      let surface = CONFIG.GROUND_Y;
+      for (const pl of this.platforms) {
+        const px = pl.screenX(this.distance);
+        if (pcx >= px && pcx <= px + pl.w && pl.top >= p.feet - 2 && pl.top < surface) surface = pl.top;
+      }
+      const shadowScale = clamp(1 - (surface - p.feet) / 260, 0.35, 1);
       ctx.fillStyle = `rgba(0, 0, 0, ${0.35 * shadowScale})`;
       ctx.beginPath();
-      ctx.ellipse(p.x + p.w / 2, CONFIG.GROUND_Y + 2, 26 * shadowScale, 5 * shadowScale, 0, 0, Math.PI * 2);
+      ctx.ellipse(pcx, surface + 2, 26 * shadowScale, 5 * shadowScale, 0, 0, Math.PI * 2);
       ctx.fill();
 
       for (const c of this.collectibles) c.draw(ctx, this.distance, this.time);
