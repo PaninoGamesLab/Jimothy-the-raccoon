@@ -36,6 +36,6 @@
   },
   "scripts": {
     "build": "npm run build",
-    "dev": "npm run watch"
+    "dev": "npm run build"
   }
 }

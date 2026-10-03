@@ -32,6 +32,13 @@ reddit/
 
 - Node.js 24 or newer (the Devvit CLI requires it).
 - A Reddit account in good standing.
+- On Windows, PowerShell blocks npm's script wrapper by default (`npm.ps1 cannot be loaded`). Allow it once for your user:
+
+  ```powershell
+  Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+  ```
+
+  or use `npm.cmd` / `npx.cmd` instead of `npm` / `npx`.
 
 ## Steps
 
