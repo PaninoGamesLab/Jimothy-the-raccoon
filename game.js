@@ -28,7 +28,7 @@
     PLAYER_X: 150,              // player's left edge on wide screens
     PLAYER_X_NARROW: 100,       // ...and on narrow screens, to keep reaction time
     SPRITE_SCALE: 0.8,          // illustration units -> logical px
-    HOLD_THRESHOLD: 0.12,       // seconds a touch must last to count as a hold (roll)
+    HOLD_THRESHOLD: 0.3,        // seconds a touch must last to count as a hold (roll / dive)
     ROLL_MIN_TIME: 0.35,        // a roll always lasts at least this long
     DIVE_GRAVITY: 2.2,          // gravity multiplier while holding in the air
     PLATFORM_LEVEL_H: 105,      // vertical distance between walkway levels
@@ -3089,8 +3089,9 @@
       });
 
       // Pointer events cover mouse, touch and pen with one handler.
-      // While playing: a short press jumps (on release), a hold rolls, and a
-      // press in the air double-jumps at once (keep holding to dive).
+      // While playing: a press shorter than HOLD_THRESHOLD jumps (on release),
+      // a longer hold rolls, and a press in the air double-jumps at once
+      // (keep holding past the threshold to dive).
       this.stage.addEventListener('pointerdown', (e) => {
         if (e.pointerType === 'mouse' && e.button !== 0) return;
         e.preventDefault();
@@ -3401,11 +3402,12 @@
       this.speed = CONFIG.BASE_SPEED + CONFIG.SPEED_GAIN * ramp;
       this.distance += this.speed * dt;
 
-      // Hold-to-roll: keyboard keys, a long touch, or any touch that began in the air (dive)
+      // Hold-to-roll: the roll keys, or a touch held past the threshold (on the
+      // ground it rolls, in the air it dives). A shorter touch is just a tap.
       const pt = this.pointer;
-      const heldLong = pt.held && !pt.inAir && performance.now() - pt.start >= CONFIG.HOLD_THRESHOLD * 1000;
-      if (heldLong) pt.rolled = true;
-      this.player.wantRoll = this.kbRoll || heldLong || (pt.held && pt.inAir);
+      const heldLong = pt.held && performance.now() - pt.start >= CONFIG.HOLD_THRESHOLD * 1000;
+      if (heldLong && !pt.inAir) pt.rolled = true;
+      this.player.wantRoll = this.kbRoll || heldLong;
 
       this.spawner.update();
       this.player.update(dt, this.speed, this.audio, this.particles, this.platforms, this.distance);
