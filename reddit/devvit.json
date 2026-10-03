@@ -5,8 +5,8 @@
     "dir": "public",
     "entrypoints": {
       "default": {
-        "entry": "splash.html",
-        "height": "regular"
+        "entry": "game.html",
+        "height": "tall"
       },
       "game": {
         "entry": "game.html"

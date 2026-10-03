@@ -14,6 +14,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="style.css" />
+  <script src="layout.js"></script>
 
   <!-- Procedural favicon: Jimothy's face, no image files needed -->
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23fff6ea'/%3E%3Cellipse cx='16' cy='18' rx='12' ry='11' fill='%23857f78'/%3E%3Ccircle cx='8' cy='9' r='3' fill='%235a554f' stroke='%23ece8e0' stroke-width='1'/%3E%3Ccircle cx='24' cy='9' r='3' fill='%235a554f' stroke='%23ece8e0' stroke-width='1'/%3E%3Cellipse cx='11' cy='12' rx='4' ry='1.6' fill='%23ece8e0'/%3E%3Cellipse cx='21' cy='12' rx='4' ry='1.6' fill='%23ece8e0'/%3E%3Cellipse cx='10.5' cy='16' rx='5.5' ry='3.5' fill='%231d1b1a'/%3E%3Cellipse cx='21.5' cy='16' rx='5.5' ry='3.5' fill='%231d1b1a'/%3E%3Cellipse cx='16' cy='23' rx='6' ry='3' fill='%23ece8e0'/%3E%3Ccircle cx='16' cy='21.5' r='1.6' fill='%23141210'/%3E%3C/svg%3E" />
@@ -69,9 +70,10 @@
           <button class="btn btn--primary" id="btn-start" type="button">Start</button>
 
           <ul class="overlay-controls" aria-label="Controls">
-            <li><strong>Tap</strong> or <kbd>Space</kbd> to jump</li>
-            <li><strong>Tap again</strong> in the air to double jump</li>
-            <li><strong>Hold</strong> or <kbd>↓</kbd> to roll under seagulls</li>
+            <li class="not-inline"><strong>Tap</strong> or <kbd>Space</kbd> to jump</li>
+            <li class="not-inline"><strong>Tap again</strong> in the air to double jump</li>
+            <li class="not-inline"><strong>Hold</strong> or <kbd>↓</kbd> to roll under seagulls</li>
+            <li class="only-inline"><strong>Tap</strong> to jump · <strong>hold</strong> to roll · <strong>⛶</strong> full screen</li>
           </ul>
         </div>
       </div>

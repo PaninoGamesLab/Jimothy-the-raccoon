@@ -672,96 +672,95 @@ kbd {
 }
 
 /* ==========================================================================
-   Phones and small tablets: the game takes the whole screen.
-   The HUD floats over the top of the canvas; the long-form sections hide
+   Compact app layout (html.compact, set by layout.js on phones, small
+   windows and inside app hosts such as Reddit): the game takes the whole
+   screen, the HUD floats over the canvas, the long-form sections hide
    (the overlay card explains the controls instead).
    ========================================================================== */
-@media (max-width: 820px), (max-height: 520px) {
-  html,
-  body {
-    height: 100%;
-    overflow: hidden;
-  }
+html.compact,
+html.compact body {
+  height: 100%;
+  overflow: hidden;
+}
 
-  .app {
-    padding: 0;
-    gap: 0;
-  }
+html.compact .app {
+  padding: 0;
+  gap: 0;
+}
 
-  .title-bar,
-  .howto,
-  .footer {
-    display: none;
-  }
+html.compact .title-bar,
+html.compact .howto,
+html.compact .footer {
+  display: none;
+}
 
-  .stage {
-    position: fixed;
-    inset: 0;
-    width: 100%;
-    height: 100vh;
-    height: 100dvh;
-    aspect-ratio: auto;
-    border: none;
-    border-radius: 0;
-    box-shadow: none;
-    z-index: 1;
-  }
+html.compact .stage {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100vh;
+  height: 100dvh;
+  aspect-ratio: auto;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  z-index: 1;
+}
 
-  .hud {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    z-index: 7;
-    pointer-events: none;
-    display: flex;
-    gap: 6px;
-    padding: calc(8px + env(safe-area-inset-top)) 100px 0 calc(10px + env(safe-area-inset-left));
-  }
+html.compact .hud {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 7;
+  pointer-events: none;
+  display: flex;
+  gap: 6px;
+  padding: calc(8px + env(safe-area-inset-top)) 100px 0 calc(10px + env(safe-area-inset-left));
+}
 
-  .hud-item {
-    flex: 0 1 auto;
-    min-width: 72px;
-    padding: 4px 10px;
-    border-radius: 999px;
-    border-width: 1.5px;
-    background: rgba(255, 253, 248, 0.9);
-    text-align: left;
-    display: flex;
-    align-items: baseline;
-    gap: 6px;
-  }
+html.compact .hud-item {
+  flex: 0 1 auto;
+  min-width: 72px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border-width: 1.5px;
+  background: rgba(255, 253, 248, 0.9);
+  text-align: left;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
 
-  .hud-label {
-    font-size: 10px;
-    letter-spacing: 1px;
-    margin: 0;
-  }
+html.compact .hud-label {
+  font-size: 10px;
+  letter-spacing: 1px;
+  margin: 0;
+}
 
-  .hud-value {
-    font-size: 17px;
-  }
+html.compact .hud-value {
+  font-size: 17px;
+}
 
-  .stage-buttons {
-    top: calc(8px + env(safe-area-inset-top));
-    right: calc(10px + env(safe-area-inset-right));
-  }
+html.compact .stage-buttons {
+  top: calc(8px + env(safe-area-inset-top));
+  right: calc(10px + env(safe-area-inset-right));
+}
 
-  .btn--icon {
-    width: 36px;
-    height: 36px;
-    font-size: 16px;
-  }
+html.compact .btn--icon {
+  width: 36px;
+  height: 36px;
+  font-size: 16px;
+}
 
-  .overlay {
-    padding: 16px;
-    padding-top: calc(60px + env(safe-area-inset-top));
-    padding-bottom: calc(16px + env(safe-area-inset-bottom));
-  }
+html.compact .overlay {
+  padding: 16px;
+  padding-top: calc(60px + env(safe-area-inset-top));
+  padding-bottom: calc(16px + env(safe-area-inset-bottom));
+}
 
-  .overlay-card {
-    width: min(100%, 400px);
-  }
+html.compact .overlay-card {
+  width: min(100%, 400px);
 }
 
 /* Very short landscape phones: trim the overlay so the button stays on screen */
@@ -782,6 +781,111 @@ kbd {
   .overlay-title {
     font-size: 24px;
   }
+}
+
+
+/* Control hints: one short line when the game sits inline in a feed */
+.only-inline {
+  display: none;
+}
+
+/* ==========================================================================
+   Inline in a feed (html.inline, a Reddit post). The feed must keep
+   scrolling over the game: vertical swipes and the mouse wheel pass through,
+   only taps and presses drive Jimothy, and every card fits inside the post
+   without scrolling.
+   ========================================================================== */
+html.inline,
+html.inline body {
+  overscroll-behavior: auto;
+}
+
+html.inline .stage {
+  touch-action: pan-y;
+  -webkit-touch-callout: none;
+}
+
+html.inline .overlay {
+  overflow: hidden;
+  align-items: center;
+  padding: 46px 12px 10px;
+}
+
+html.inline .overlay-card {
+  width: min(100%, 360px);
+  margin: 0;
+  padding: 12px 16px 14px;
+}
+
+html.inline .overlay-card.has-board {
+  padding: 10px 14px 12px;
+}
+
+html.inline .overlay-kicker {
+  margin-bottom: 0;
+  font-size: 11px;
+}
+
+html.inline .overlay-title {
+  margin-bottom: 8px;
+  font-size: 24px;
+}
+
+html.inline .overlay-sub,
+html.inline .overlay-board-me,
+html.inline .overlay-record,
+html.inline .not-inline {
+  display: none;
+}
+
+html.inline .only-inline {
+  display: block;
+}
+
+html.inline .overlay-stats {
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+html.inline .overlay-stats div {
+  padding: 4px 2px;
+}
+
+html.inline .overlay-stats strong {
+  font-size: 16px;
+}
+
+html.inline .overlay-board,
+html.inline .overlay-card.has-board .overlay-board {
+  margin-bottom: 8px;
+}
+
+html.inline .overlay-board-title {
+  margin-bottom: 4px;
+  font-size: 11px;
+}
+
+html.inline .overlay-board-list,
+html.inline .overlay-card.has-board .overlay-board-list {
+  max-height: none;
+  overflow: hidden;
+}
+
+html.inline .overlay-board-list li {
+  padding: 3px 10px;
+}
+
+html.inline .overlay-board-list li:nth-child(n + 4) {
+  display: none;
+}
+
+html.inline .btn--primary {
+  padding: 10px 36px;
+  font-size: 18px;
+}
+
+html.inline .overlay-controls {
+  margin-top: 8px;
 }
 
 @media (prefers-reduced-motion: reduce) {

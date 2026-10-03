@@ -2987,8 +2987,19 @@
       this.showStartOverlay();
       this.updateHud(true);
       if (this.backend) this.loadBackend();
-      // Keyboard focus: inside an embed (a Reddit post) keys go to the host page
-      // until something in this frame is focused, so grab it as early as possible.
+
+      // Inline in a feed (a Reddit post) the feed owns scrolling, keys and focus;
+      // in Reddit's expanded view or on its own page the game owns them.
+      this.inline = false;
+      this.onScreen = true;
+      this.observer = null;
+      if (this.backend && typeof this.backend.onModeChange === 'function') {
+        this.backend.onModeChange(() => this.applyMode());
+      }
+      this.applyMode();
+
+      // Keyboard focus: grab it so Space works at once (never inline, where
+      // it would steal the feed's keyboard).
       this.focusStage();
       window.addEventListener('load', () => this.focusStage());
       // Browsers refuse to move focus into an embedded frame without a click,
@@ -2999,14 +3010,54 @@
       } catch (_) {
         embedded = true;
       }
-      if (embedded && !document.hasFocus()) {
+      if (embedded && !this.inline && !document.hasFocus()) {
         this.dom.sub.textContent = 'Click or tap Start to wake Jimothy up. Keys work once the game has been clicked.';
       }
 
       requestAnimationFrame((t) => this.frame(t));
     }
 
+    /** Syncs input and layout with the host's view mode ('inline' in a feed, else full). */
+    applyMode() {
+      const inline = !!(this.backend && this.backend.mode === 'inline');
+      const changed = inline !== this.inline;
+      this.inline = inline;
+      document.documentElement.classList.toggle('inline', inline);
+      if (inline) {
+        this.kbRoll = false;
+        this.watchVisibility();
+      } else {
+        this.onScreen = true;
+        if (this.observer) {
+          this.observer.disconnect();
+          this.observer = null;
+        }
+      }
+      this.updateFullscreenButton();
+      this.resize();
+      // Back in the feed after playing full screen: refresh the board
+      if (changed && inline && this.backend) this.loadBackend();
+    }
+
+    /** Inline only: pause and stop drawing while the post is scrolled out of view. */
+    watchVisibility() {
+      if (this.observer || typeof IntersectionObserver === 'undefined') return;
+      this.observer = new IntersectionObserver(
+        (entries) => {
+          const e = entries[entries.length - 1];
+          this.onScreen = e.isIntersecting && e.intersectionRatio > 0;
+          if (e.intersectionRatio < 0.5 && this.state === STATE.PLAYING) this.pause();
+          if (!this.onScreen && this.audio.ctx && this.audio.ctx.state === 'running') {
+            this.audio.ctx.suspend().catch(() => {});
+          }
+        },
+        { threshold: [0, 0.5] }
+      );
+      this.observer.observe(this.stage);
+    }
+
     focusStage() {
+      if (this.inline) return;
       try {
         if (window.focus) window.focus();
         this.stage.focus({ preventScroll: true });
@@ -3168,7 +3219,15 @@
     updateFullscreenButton() {
       const b = this.dom.btnFull;
       if (!b) return;
-      b.hidden = !this.fullscreenSupported || !!this.backend;
+      if (this.backend) {
+        // Inside Reddit the button opens the expanded view; once expanded,
+        // Reddit's own close button takes over.
+        b.hidden = !(this.inline && typeof this.backend.expand === 'function');
+        b.title = 'Open full screen';
+        b.setAttribute('aria-label', 'Open full screen');
+        return;
+      }
+      b.hidden = !this.fullscreenSupported;
       const on = this.isFullscreen;
       b.classList.toggle('active', on);
       b.setAttribute('aria-pressed', String(on));
@@ -3181,6 +3240,8 @@
     bindInput() {
       window.addEventListener('keydown', (e) => {
         if (e.repeat) return;
+        // Inline in a feed, Space and the arrows scroll the feed: leave them alone
+        if (this.inline) return;
         switch (e.code) {
           case 'Space':
           case 'ArrowUp':
@@ -3226,7 +3287,7 @@
       // (keep holding past the threshold to dive).
       this.stage.addEventListener('pointerdown', (e) => {
         if (e.pointerType === 'mouse' && e.button !== 0) return;
-        e.preventDefault();
+        if (!this.inline) e.preventDefault();
         this.focusStage();
         if (this.state !== STATE.PLAYING) {
           this.primaryAction();
@@ -3268,6 +3329,9 @@
       this.stage.addEventListener(
         'touchstart',
         (e) => {
+          // Inline, a swipe over the game must scroll the feed (touch-action: pan-y
+          // still keeps taps and presses for the game)
+          if (this.inline) return;
           // Buttons inside the stage must still get their click
           if (e.target && e.target.closest && e.target.closest('button')) return;
           e.preventDefault();
@@ -3293,6 +3357,15 @@
         this.dom.btnFull.addEventListener('pointerdown', (e) => e.stopPropagation());
         this.dom.btnFull.addEventListener('click', (e) => {
           e.stopPropagation();
+          if (this.backend && this.inline && typeof this.backend.expand === 'function') {
+            if (this.state === STATE.PLAYING) this.pause();
+            try {
+              this.backend.expand(e);
+            } catch (err) {
+              console.error(err);
+            }
+            return;
+          }
           this.toggleFullscreen();
         });
       }
@@ -3518,6 +3591,11 @@
     frame(now) {
       const dt = Math.min((now - this.lastFrame) / 1000, CONFIG.MAX_DT);
       this.lastFrame = now;
+      if (!this.onScreen) {
+        // Inline and scrolled out of view: nothing to animate or draw
+        requestAnimationFrame((t) => this.frame(t));
+        return;
+      }
       this.time += dt;
 
       this.update(dt);

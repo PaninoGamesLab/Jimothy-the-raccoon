@@ -3,12 +3,14 @@
  * Builds the Reddit copy of the game from the files in the repository root.
  *
  *  - public/game.html   : index.html with Google Fonts replaced by self-hosted
- *                         fonts (the Reddit webview allows no external requests)
- *                         and the backend bridge loaded before game.js
- *  - public/style.css   : copied verbatim
- *  - public/game.js     : copied verbatim
- *  - public/devvit-bridge.js
+ *                         fonts (the Reddit webview allows no external requests),
+ *                         marked as an app host (data-app) and with the Reddit
+ *                         bridge loaded in <head>, before the game
+ *  - public/style.css, public/layout.js : copied verbatim
+ *  - public/game.js     : copied (minified afterwards by `npm run build:game`)
  *  - public/fonts/*.woff2 + public/fonts.css : Fredoka and Nunito from @fontsource
+ *
+ * public/devvit-bridge.js is bundled from src/client by `npm run build:bridge`.
  */
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -50,15 +52,21 @@ html = html
   .replace(/\s*<link rel="preconnect" href="https:\/\/fonts\.googleapis\.com" \/>/, '')
   .replace(/\s*<link rel="preconnect" href="https:\/\/fonts\.gstatic\.com" crossorigin \/>/, '')
   .replace(/<link href="https:\/\/fonts\.googleapis\.com\/css2[^"]*" rel="stylesheet" \/>/, '<link rel="stylesheet" href="fonts.css" />')
-  .replace('<script src="game.js"></script>', '<script src="devvit-bridge.js"></script>\n  <script src="game.js"></script>');
-if (html === before || /fonts\.googleapis|fonts\.gstatic/.test(html) || !html.includes('devvit-bridge.js')) {
+  .replace('<html lang="en">', '<html lang="en" data-app="reddit">')
+  .replace('<script src="layout.js"></script>', '<script src="layout.js"></script>\n  <script src="devvit-bridge.js"></script>');
+if (
+  html === before ||
+  /fonts\.googleapis|fonts\.gstatic/.test(html) ||
+  !html.includes('data-app="reddit"') ||
+  !/<head>[\s\S]*devvit-bridge\.js[\s\S]*<\/head>/.test(html)
+) {
   throw new Error('index.html did not look as expected; update scripts/sync.mjs');
 }
 writeFileSync(join(publicDir, 'game.html'), html);
 
 // 3. Verbatim copies
 copyFileSync(need(join(rootDir, 'style.css')), join(publicDir, 'style.css'));
+copyFileSync(need(join(rootDir, 'layout.js')), join(publicDir, 'layout.js'));
 copyFileSync(need(join(rootDir, 'game.js')), join(publicDir, 'game.js'));
-copyFileSync(need(join(appDir, 'src', 'client', 'devvit-bridge.js')), join(publicDir, 'devvit-bridge.js'));
 
-console.log('synced game into reddit/public (game.html, style.css, game.js, devvit-bridge.js, fonts)');
+console.log('synced game into reddit/public (game.html, style.css, layout.js, game.js, fonts)');
