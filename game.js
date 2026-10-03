@@ -2987,8 +2987,32 @@
       this.showStartOverlay();
       this.updateHud(true);
       if (this.backend) this.loadBackend();
+      // Keyboard focus: inside an embed (a Reddit post) keys go to the host page
+      // until something in this frame is focused, so grab it as early as possible.
+      this.focusStage();
+      window.addEventListener('load', () => this.focusStage());
+      // Browsers refuse to move focus into an embedded frame without a click,
+      // so say so instead of letting the first Space go nowhere.
+      let embedded = false;
+      try {
+        embedded = window.top !== window;
+      } catch (_) {
+        embedded = true;
+      }
+      if (embedded && !document.hasFocus()) {
+        this.dom.sub.textContent = 'Click or tap Start to wake Jimothy up. Keys work once the game has been clicked.';
+      }
 
       requestAnimationFrame((t) => this.frame(t));
+    }
+
+    focusStage() {
+      try {
+        if (window.focus) window.focus();
+        this.stage.focus({ preventScroll: true });
+      } catch (_) {
+        /* not focusable here; the first click will do it */
+      }
     }
 
     /* ----- Backend: high score and leaderboard ----- */
@@ -3203,6 +3227,7 @@
       this.stage.addEventListener('pointerdown', (e) => {
         if (e.pointerType === 'mouse' && e.button !== 0) return;
         e.preventDefault();
+        this.focusStage();
         if (this.state !== STATE.PLAYING) {
           this.primaryAction();
           return;
@@ -3255,6 +3280,7 @@
         e.stopPropagation();
         this.audio.unlock();
         if (this.state === STATE.START || this.state === STATE.GAME_OVER) this.startGame();
+        this.focusStage();
       });
 
       this.dom.btnMute.addEventListener('pointerdown', (e) => e.stopPropagation());
@@ -3279,6 +3305,7 @@
       this.updateFullscreenButton();
 
       document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) this.focusStage();
         if (document.hidden) {
           if (this.state === STATE.PLAYING) this.pause();
           if (this.audio.ctx && this.audio.ctx.state === 'running') this.audio.ctx.suspend().catch(() => {});

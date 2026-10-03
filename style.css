@@ -190,6 +190,10 @@ body {
   40%, 60% { transform: translate3d(5px, 0, 0); }
 }
 
+.stage:focus {
+  outline: none;
+}
+
 #game {
   display: block;
   width: 100%;
