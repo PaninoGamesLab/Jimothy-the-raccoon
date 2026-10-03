@@ -223,8 +223,9 @@ body {
   position: absolute;
   inset: 0;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
+  overflow-y: auto;
   padding: 16px;
   background: rgba(60, 40, 70, 0.42);
   backdrop-filter: blur(3px);
@@ -241,6 +242,7 @@ body {
 
 .overlay-card {
   width: min(100%, 440px);
+  margin: auto; /* centred when it fits, scrollable when it does not */
   text-align: center;
   background: var(--paper);
   border: 3px solid var(--line-strong);
@@ -364,7 +366,7 @@ body {
   list-style: none;
   margin: 0;
   padding: 0;
-  max-height: 150px;
+  max-height: 128px;
   overflow-y: auto;
   border: 2px solid var(--line);
   border-radius: var(--radius-sm);
@@ -437,6 +439,11 @@ body {
 
 .overlay-controls strong {
   color: var(--cocoa);
+}
+
+/* With a leaderboard on the card, the control hints give way to it */
+.overlay-card.has-board .overlay-controls {
+  display: none;
 }
 
 /* ---------- Buttons ---------- */

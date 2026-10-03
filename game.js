@@ -3391,7 +3391,9 @@
       d.btnStart.textContent = button;
       d.stats.hidden = !stats;
       d.record.hidden = !(stats && this.isNewRecord);
-      if (d.board) d.board.hidden = !(stats && this.board);
+      const hasBoard = !!(stats && this.board);
+      if (d.board) d.board.hidden = !hasBoard;
+      d.overlay.querySelector('.overlay-card').classList.toggle('has-board', hasBoard);
       if (stats) {
         d.finalScore.textContent = String(this.score);
         d.finalItems.textContent = String(this.items);
