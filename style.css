@@ -720,8 +720,11 @@ html.compact .hud {
 }
 
 html.compact .hud-item {
-  flex: 0 1 auto;
+  /* Never squeezed below their content: when three labelled pills do not fit
+     beside the corner buttons, fitHud() drops the labels instead */
+  flex: 0 0 auto;
   min-width: 0;
+  overflow: hidden;
   padding: 4px 10px;
   border-radius: 999px;
   border-width: 1.5px;
@@ -785,15 +788,17 @@ html.compact .overlay-card {
 }
 
 
-/* Very narrow screens: the score pills keep their numbers, drop their labels */
-@media (max-width: 360px) {
-  html.compact .hud-label {
-    display: none;
-  }
+/* Not enough room for labelled pills (set by fitHud): numbers only */
+html.compact.hud-tight .hud-label {
+  display: none;
+}
 
-  html.compact .hud-item {
-    padding: 4px 9px;
-  }
+html.compact.hud-tight .hud-item {
+  padding: 4px 9px;
+}
+
+html.compact.hud-tighter .hud-item--snacks {
+  display: none;
 }
 
 /* Control hints: one short line when the game sits inline in a feed */

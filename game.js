@@ -3023,6 +3023,8 @@
       this.updateMuteButton();
       this.showStartOverlay();
       this.updateHud(true);
+      // The pill widths depend on the display font: measure again once it is in
+      if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => this.fitHud()).catch(() => {});
       if (this.backend) this.loadBackend();
 
       // Inline in a feed (a Reddit post) the feed owns scrolling, keys and focus;
@@ -3241,6 +3243,7 @@
       p.homeX = v.w < 720 ? CONFIG.PLAYER_X_NARROW : CONFIG.PLAYER_X;
       if (!p.dead) p.x = p.homeX;
       this.buildVignette();
+      this.fitHud();
     }
 
     /** The soft edge darkening is rendered once per resize instead of every frame. */
@@ -3684,6 +3687,34 @@
           d.hudItems.classList.add('bump');
         }
       }
+      // Pill widths only change when a number gains or loses a digit
+      const digits = `${String(this.score).length}|${String(this.highScore).length}|${String(this.items).length}`;
+      if (force || digits !== c.digits) {
+        c.digits = digits;
+        this.fitHud();
+      }
+    }
+
+    /**
+     * Compact layout: the score pills keep their labels while all three fit
+     * beside the corner buttons, and drop them (numbers only) when they do not.
+     */
+    fitHud() {
+      const root = document.documentElement;
+      const hud = this.dom.hudScore && this.dom.hudScore.closest('.hud');
+      root.classList.remove('hud-tight', 'hud-tighter');
+      if (!hud || !root.classList.contains('compact')) return;
+      // Level 0: labelled pills. Level 1: numbers only. Level 2: the snacks
+      // pill gives way too (the game-over card still shows the snack count).
+      const box = hud.getBoundingClientRect();
+      const limit = box.right - (parseFloat(getComputedStyle(hud).paddingRight) || 0);
+      const overflows = () => {
+        const shown = [...hud.querySelectorAll('.hud-item')].filter((el) => el.offsetParent !== null);
+        return shown.length > 0 && shown[shown.length - 1].getBoundingClientRect().right > limit + 0.5;
+      };
+      if (!overflows()) return;
+      root.classList.add('hud-tight');
+      if (overflows()) root.classList.add('hud-tighter');
     }
 
     /* ----- Loop ----- */
