@@ -721,7 +721,7 @@ html.compact .hud {
 
 html.compact .hud-item {
   flex: 0 1 auto;
-  min-width: 72px;
+  min-width: 0;
   padding: 4px 10px;
   border-radius: 999px;
   border-width: 1.5px;
@@ -765,7 +765,8 @@ html.compact .overlay-card {
 
 /* Very short landscape phones: trim the overlay so the button stays on screen */
 @media (max-height: 430px) {
-  .overlay {
+  .overlay,
+  html.compact .overlay {
     padding-top: calc(14px + env(safe-area-inset-top));
   }
 
@@ -783,6 +784,17 @@ html.compact .overlay-card {
   }
 }
 
+
+/* Very narrow screens: the score pills keep their numbers, drop their labels */
+@media (max-width: 360px) {
+  html.compact .hud-label {
+    display: none;
+  }
+
+  html.compact .hud-item {
+    padding: 4px 9px;
+  }
+}
 
 /* Control hints: one short line when the game sits inline in a feed */
 .only-inline {
@@ -809,6 +821,10 @@ html.inline .overlay {
   overflow: hidden;
   align-items: center;
   padding: 46px 12px 10px;
+  /* No live blur in the feed: it is costly to composite on phones */
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  background: rgba(60, 40, 70, 0.5);
 }
 
 html.inline .overlay-card {
@@ -884,8 +900,37 @@ html.inline .btn--primary {
   font-size: 18px;
 }
 
+/* The one-line hint stays even on short posts (the 430 px rule hides the list) */
 html.inline .overlay-controls {
+  display: flex;
   margin-top: 8px;
+}
+
+/* Short posts (Reddit's "regular" height and below): the game-over card drops
+   the stat boxes (the score pills show them) and keeps two board rows */
+@media (max-height: 340px) {
+  html.inline .overlay {
+    padding-top: 42px;
+    padding-bottom: 6px;
+  }
+
+  html.inline .overlay-stats {
+    display: none;
+  }
+
+  html.inline .overlay-title {
+    margin-bottom: 6px;
+    font-size: 22px;
+  }
+
+  html.inline .overlay-board-list li:nth-child(n + 3) {
+    display: none;
+  }
+
+  html.inline .btn--primary {
+    padding: 8px 32px;
+    font-size: 17px;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

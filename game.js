@@ -467,10 +467,24 @@
       this.H = CONFIG.HEIGHT;
       this.tileW = 1920;
       this.fieldW = 1800; // width of the star / cloud fields before they repeat
+      this.version = 0; // bumped whenever a tile is redrawn
       this.buildLayers();
-      // The signs use the display font; rebuild the tiles once it has loaded.
-      if (document.fonts && document.fonts.ready) {
-        document.fonts.ready.then(() => this.buildLayers()).catch(() => {});
+      // The BALLARD sign uses the display font. If it was not loaded yet, redraw
+      // just the street tile once it is (the skyline has no text).
+      const fontReady = () => {
+        try {
+          return document.fonts.check(`bold 13px ${FONT}`);
+        } catch (_) {
+          return true;
+        }
+      };
+      if (document.fonts && document.fonts.ready && !fontReady()) {
+        document.fonts.ready
+          .then(() => {
+            this.layers[1].canvas = this.buildStreet(seededRandom(4242));
+            this.version++;
+          })
+          .catch(() => {});
       }
 
       // Seattle drizzle (soft, lavender, never heavy)
@@ -1495,11 +1509,14 @@
       this.runFrames = runFrames;
       // Generous box in sprite coordinates; covers everything the contract allows.
       this.box = { x: -100, y: -118, w: 180, h: 124 };
-      this.frames = { run: [], jump: null, fall: null, dead: null };
+      this.frames = { run: new Array(runFrames).fill(null), jump: null, fall: null, dead: null };
       this.ok = false;
       try {
-        this.build();
+        // Only the first frame up front (it also proves the illustration works);
+        // the rest render on first use or in idle time, so loading stays light.
+        this.frames.run[0] = this.renderFrame({ pose: 'run', t: 0, time: 0 });
         this.ok = true;
+        this.warmUp();
       } catch (_) {
         this.ok = false;
       }
@@ -1515,21 +1532,41 @@
       return c;
     }
 
-    build() {
-      for (let i = 0; i < this.runFrames; i++) {
-        this.frames.run.push(this.renderFrame({ pose: 'run', t: i / this.runFrames, time: 0 }));
-      }
-      this.frames.jump = this.renderFrame({ pose: 'jump', t: 0, time: 0 });
-      this.frames.fall = this.renderFrame({ pose: 'fall', t: 0, time: 0 });
-      this.frames.dead = this.renderFrame({ pose: 'dead', t: 0, time: 0 });
+    /** Renders the missing frames one at a time while the browser is idle. */
+    warmUp() {
+      const idle = window.requestIdleCallback || ((cb) => setTimeout(cb, 60));
+      const next = (deadline) => {
+        // Wait for a roomy idle period: a frame takes a few milliseconds to paint
+        if (deadline && deadline.timeRemaining && deadline.timeRemaining() < 12) {
+          idle(next);
+          return;
+        }
+        const i = this.frames.run.indexOf(null);
+        if (i >= 0) this.frame('run', i / this.runFrames);
+        else if (!this.frames.jump) this.frame('jump', 0);
+        else if (!this.frames.fall) this.frame('fall', 0);
+        else if (!this.frames.dead) this.frame('dead', 0);
+        else return;
+        idle(next);
+      };
+      idle(next);
     }
 
     frame(pose, t) {
-      if (pose === 'run') {
-        const i = Math.floor((((t % 1) + 1) % 1) * this.runFrames) % this.runFrames;
-        return this.frames.run[i];
+      try {
+        if (pose === 'run') {
+          const i = Math.floor((((t % 1) + 1) % 1) * this.runFrames) % this.runFrames;
+          if (!this.frames.run[i]) this.frames.run[i] = this.renderFrame({ pose: 'run', t: i / this.runFrames, time: 0 });
+          return this.frames.run[i];
+        }
+        if (pose in this.frames) {
+          if (!this.frames[pose]) this.frames[pose] = this.renderFrame({ pose, t: 0, time: 0 });
+          return this.frames[pose];
+        }
+      } catch (_) {
+        /* fall back to the first frame */
       }
-      return this.frames[pose] || this.frames.run[0];
+      return this.frames.run[0];
     }
 
     /** Draws a frame with the sprite origin at the current transform origin. */
@@ -2990,9 +3027,12 @@
 
       // Inline in a feed (a Reddit post) the feed owns scrolling, keys and focus;
       // in Reddit's expanded view or on its own page the game owns them.
-      this.inline = false;
+      this.inline = !!(this.backend && this.backend.mode === 'inline');
       this.onScreen = true;
+      this.visibleRatio = 1;
       this.observer = null;
+      this.modeReady = false;
+      this.expandedAway = false;
       if (this.backend && typeof this.backend.onModeChange === 'function') {
         this.backend.onModeChange(() => this.applyMode());
       }
@@ -3025,18 +3065,49 @@
       document.documentElement.classList.toggle('inline', inline);
       if (inline) {
         this.kbRoll = false;
+        // Inline the feed must scroll: no scroll-blocking touch listener at all
+        this.stage.removeEventListener('touchstart', this.onTouchStart, { passive: false });
         this.watchVisibility();
+        // Dropped back into the feed mid-run: stop before Jimothy runs into something
+        if (changed && this.state === STATE.PLAYING) this.pause();
       } else {
         this.onScreen = true;
+        this.visibleRatio = 1;
         if (this.observer) {
           this.observer.disconnect();
           this.observer = null;
         }
+        this.stage.addEventListener('touchstart', this.onTouchStart, { passive: false });
       }
       this.updateFullscreenButton();
       this.resize();
       // Back in the feed after playing full screen: refresh the board
-      if (changed && inline && this.backend) this.loadBackend();
+      if (changed && inline && this.modeReady && this.backend) this.loadBackend();
+      this.modeReady = true;
+    }
+
+    /** The user closed Reddit's expanded view and is back on this inline post. */
+    returnFromExpanded() {
+      if (!this.expandedAway) return;
+      this.expandedAway = false;
+      if (this.inline && this.backend) this.loadBackend();
+    }
+
+    /** Gives up a paused run (its score still counts) and goes back to the start card. */
+    abandonRun() {
+      if (this.state === STATE.PAUSED && this.score > 0) this.submitScore();
+      this.state = STATE.START;
+      this.obstacles.length = 0;
+      this.collectibles.length = 0;
+      this.platforms.length = 0;
+      this.particles.clear();
+      this.texts.clear();
+      this.player.reset();
+      this.score = 0;
+      this.items = 0;
+      this.updateHud(true);
+      this.showStartOverlay();
+      this.updateFullscreenButton();
     }
 
     /** Inline only: pause and stop drawing while the post is scrolled out of view. */
@@ -3046,9 +3117,11 @@
         (entries) => {
           const e = entries[entries.length - 1];
           this.onScreen = e.isIntersecting && e.intersectionRatio > 0;
-          if (e.intersectionRatio < 0.5 && this.state === STATE.PLAYING) this.pause();
-          if (!this.onScreen && this.audio.ctx && this.audio.ctx.state === 'running') {
-            this.audio.ctx.suspend().catch(() => {});
+          this.visibleRatio = e.isIntersecting ? e.intersectionRatio : 0;
+          if (this.visibleRatio < 0.5) {
+            if (this.state === STATE.PLAYING) this.pause();
+            // Scrolled mostly away: silence, whatever is playing (a tap resumes it)
+            if (this.audio.ctx && this.audio.ctx.state === 'running') this.audio.ctx.suspend().catch(() => {});
           }
         },
         { threshold: [0, 0.5] }
@@ -3222,7 +3295,13 @@
       if (this.backend) {
         // Inside Reddit the button opens the expanded view; once expanded,
         // Reddit's own close button takes over.
-        b.hidden = !(this.inline && typeof this.backend.expand === 'function');
+        // Offered from the cards only: the expanded view starts its own run.
+        b.hidden = !(
+          this.inline &&
+          this.backend.canExpand !== false &&
+          typeof this.backend.expand === 'function' &&
+          this.state !== STATE.PLAYING
+        );
         b.title = 'Open full screen';
         b.setAttribute('aria-label', 'Open full screen');
         return;
@@ -3290,7 +3369,9 @@
         if (!this.inline) e.preventDefault();
         this.focusStage();
         if (this.state !== STATE.PLAYING) {
-          this.primaryAction();
+          // Inline, a press may turn into a feed scroll: the menus wait for the
+          // click, which the browser cancels when the touch becomes a pan.
+          if (!this.inline) this.primaryAction();
           return;
         }
         this.audio.unlock();
@@ -3302,9 +3383,10 @@
         p.id = e.pointerId;
         p.rolled = false;
         p.inAir = !player.onGround;
-        if (p.inAir) {
+        if (p.inAir && !this.inline) {
           // Just off a ledge (coyote time) this is still the full jump; otherwise
           // the one air jump, if it is left. Nothing is buffered when neither applies.
+          // (Inline this waits for the release, so a feed scroll never jumps.)
           if (player.coyote > 0 || player.jumpsLeft >= 1) player.requestJump();
         }
       });
@@ -3314,11 +3396,17 @@
         if (e && p.id !== null && e.pointerId !== undefined && e.pointerId !== p.id) return;
         p.held = false;
         const quick = performance.now() - p.start < CONFIG.HOLD_THRESHOLD * 1000;
-        if (!cancelled && this.state === STATE.PLAYING && !p.inAir && !p.rolled) {
-          // A short press is a tap. A press past the threshold that no frame
-          // has turned into a roll yet (released between frames) still rolls.
-          if (quick) this.player.requestJump();
-          else this.rollOnce = true;
+        if (!cancelled && this.state === STATE.PLAYING && !p.rolled) {
+          const player = this.player;
+          if (!p.inAir) {
+            // A short press is a tap. A press past the threshold that no frame
+            // has turned into a roll yet (released between frames) still rolls.
+            if (quick) player.requestJump();
+            else this.rollOnce = true;
+          } else if (this.inline && quick && (player.onGround || player.coyote > 0 || player.jumpsLeft >= 1)) {
+            // Inline air tap, confirmed on release
+            player.requestJump();
+          }
         }
         p.rolled = false;
       };
@@ -3326,24 +3414,26 @@
       window.addEventListener('pointercancel', (e) => release(e, true));
 
       // Older mobile browsers: make sure touches never scroll/zoom the stage.
-      this.stage.addEventListener(
-        'touchstart',
-        (e) => {
-          // Inline, a swipe over the game must scroll the feed (touch-action: pan-y
-          // still keeps taps and presses for the game)
-          if (this.inline) return;
-          // Buttons inside the stage must still get their click
-          if (e.target && e.target.closest && e.target.closest('button')) return;
-          e.preventDefault();
-        },
-        { passive: false }
-      );
+      // Registered by applyMode() only outside the feed: inline, swipes must scroll it.
+      this.onTouchStart = (e) => {
+        if (this.inline) return;
+        // Buttons inside the stage must still get their click
+        if (e.target && e.target.closest && e.target.closest('button')) return;
+        e.preventDefault();
+      };
       this.stage.addEventListener('contextmenu', (e) => e.preventDefault());
+      // Inline menus: start, resume and restart on a real click (a feed scroll never clicks)
+      this.stage.addEventListener('click', (e) => {
+        if (!this.inline || this.state === STATE.PLAYING) return;
+        if (e.target && e.target.closest && e.target.closest('button')) return;
+        this.primaryAction();
+      });
 
       this.dom.btnStart.addEventListener('click', (e) => {
         e.stopPropagation();
         this.audio.unlock();
         if (this.state === STATE.START || this.state === STATE.GAME_OVER) this.startGame();
+        else if (this.state === STATE.PAUSED) this.resume();
         this.focusStage();
       });
 
@@ -3361,6 +3451,10 @@
             if (this.state === STATE.PLAYING) this.pause();
             try {
               this.backend.expand(e);
+              // This post stays in the feed behind the expanded view: rest until
+              // the player comes back, then show a fresh start card and board.
+              this.expandedAway = true;
+              if (this.state === STATE.PAUSED) this.abandonRun();
             } catch (err) {
               console.error(err);
             }
@@ -3377,7 +3471,9 @@
       document.addEventListener('webkitfullscreenchange', onFullscreenChange);
       this.updateFullscreenButton();
 
+      window.addEventListener('focus', () => this.returnFromExpanded());
       document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) this.returnFromExpanded();
         if (!document.hidden) this.focusStage();
         if (document.hidden) {
           if (this.state === STATE.PLAYING) this.pause();
@@ -3450,6 +3546,7 @@
       this.stage.classList.remove('shake');
       this.audio.start();
       this.updateHud(true);
+      this.updateFullscreenButton();
     }
 
     pause() {
@@ -3465,6 +3562,7 @@
         button: 'Resume',
         stats: false,
       });
+      this.updateFullscreenButton();
     }
 
     resume() {
@@ -3475,6 +3573,7 @@
       this.dom.overlay.classList.add('hidden');
       this.dom.btnStart.blur();
       this.lastFrame = performance.now();
+      this.updateFullscreenButton();
     }
 
     togglePause() {
@@ -3509,6 +3608,7 @@
       }
       this.submitScore();
       this.updateHud(true);
+      this.updateFullscreenButton();
     }
 
     showStartOverlay() {
@@ -3589,21 +3689,45 @@
     /* ----- Loop ----- */
 
     frame(now) {
-      const dt = Math.min((now - this.lastFrame) / 1000, CONFIG.MAX_DT);
-      this.lastFrame = now;
-      if (!this.onScreen) {
-        // Inline and scrolled out of view: nothing to animate or draw
-        requestAnimationFrame((t) => this.frame(t));
+      requestAnimationFrame((t) => this.frame(t));
+      if (!this.onScreen || this.expandedAway) {
+        // Inline and scrolled out of view, or covered by the expanded view
+        this.lastFrame = now;
         return;
       }
+      if (this.inline) {
+        if (this.state === STATE.PLAYING && this.visibleRatio < 0.5) this.pause();
+        // Menus in the feed: draw the scene once behind the card and leave it
+        // still until something changes, so a post sitting in the feed costs
+        // nothing (Reddit asks inline posts to stay light).
+        if (this.isIdle()) {
+          const key = `${this.state}|${this.view.w}x${this.view.h}|${this.background.version}`;
+          if (key === this.idleKey) {
+            this.lastFrame = now;
+            return;
+          }
+          this.idleKey = key;
+        } else {
+          this.idleKey = null;
+        }
+      }
+      const dt = Math.min((now - this.lastFrame) / 1000, CONFIG.MAX_DT);
+      this.lastFrame = now;
       this.time += dt;
 
       this.update(dt);
       const scroll = this.state === STATE.PLAYING ? this.speed : this.state === STATE.START ? CONFIG.BASE_SPEED * 0.5 : 0;
       this.background.updateRain(dt, scroll, this.view);
       this.render();
+    }
 
-      requestAnimationFrame((t) => this.frame(t));
+    /** Nothing moving fast: a menu card is up (start, pause, or game over after the fall). */
+    isIdle() {
+      return (
+        this.state === STATE.START ||
+        this.state === STATE.PAUSED ||
+        (this.state === STATE.GAME_OVER && this.deathTimer > 1.3)
+      );
     }
 
     update(dt) {

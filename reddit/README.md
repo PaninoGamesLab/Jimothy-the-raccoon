@@ -6,8 +6,9 @@ An unofficial fan tribute game about Jimothy, the round raccoon of Ballard, Seat
 
 Jimothy scurries through a cosy Ballard evening. Keep him running, eat every snack, and don't get caught.
 
-- **Tap** (or press Space) to jump. Tap again in the air to double jump.
-- **Hold** (or hold ↓ / S) to roll under seagulls. Keep holding in the air to dive.
+- **Tap** to jump. Tap again in the air to double jump.
+- Tap **⛶** to play full screen, where the keyboard works too (Space or ↑ to jump, ↓ to roll).
+- **Hold** to roll under seagulls. Keep holding in the air to dive.
 - **Eat** pizza, donuts and shiny trash: 10 points each, plus 1 point per meter travelled.
 - **Avoid** trash cans, alley cats, seagulls and the Animal Control truck.
 - Walkways appear as you go: jump up and run along them for extra snacks.

@@ -2,7 +2,7 @@
 
 > *A cosy endless runner starring Jimothy, the real-life round raccoon of Ballard, Seattle, who scurried his way into the internet's heart in the summer of 2026.*
 
-**Jimothy, the Raccoon** is a 2D side-scrolling arcade game built with nothing but vanilla JavaScript, the HTML5 Canvas API and the Web Audio API. No frameworks. No image files. No audio files. Every pixel is drawn and every sound is synthesized at runtime, so the whole game is three files you can host anywhere, including GitHub Pages.
+**Jimothy, the Raccoon** is a 2D side-scrolling arcade game built with nothing but vanilla JavaScript, the HTML5 Canvas API and the Web Audio API. No frameworks. No image files. No audio files. Every pixel is drawn and every sound is synthesized at runtime, so the whole game is four small files you can host anywhere, including GitHub Pages.
 
 ---
 
@@ -89,7 +89,8 @@ This game is a fan tribute. In it, Jimothy does what Jimothy does: scurries thro
 ```
 .
 ├── index.html   # Page layout: HUD, canvas, overlay, how-to-play section
-├── style.css    # Retro neon arcade styling, responsive layout, animations
+├── style.css    # Cosy styling, responsive layout, animations
+├── layout.js    # Picks the page layout (desktop or full-screen app) before the first paint
 ├── game.js      # Game engine: state machine, input, entities, spawner, audio, render loop
 └── README.md    # You are here
 ```
@@ -124,7 +125,7 @@ Then visit `http://localhost:8080`.
 
 ## 🌐 Deploy to GitHub Pages (step by step)
 
-1. **Push the code to GitHub.** Make sure `index.html`, `style.css` and `game.js` are in the root of your repository on your main branch.
+1. **Push the code to GitHub.** Make sure `index.html`, `style.css`, `layout.js` and `game.js` are in the root of your repository on your main branch.
 
 2. **Open the repository settings.** On GitHub, go to your repository and click **Settings** (the gear tab at the top).
 
@@ -148,7 +149,7 @@ Then visit `http://localhost:8080`.
 
 ## 👾 Play it on Reddit
 
-The `reddit/` folder wraps the game as a Reddit app (Devvit Web): playable right inside the post in the feed (taps only, the feed keeps scrolling), a ⛶ button for Reddit's full-screen view with keyboard controls, and a per-subreddit leaderboard stored in Redis under each player's Reddit username. The build copies the three game files from this folder, so there is only one game to maintain. See [`reddit/DEVELOPING.md`](reddit/DEVELOPING.md) for the step-by-step guide (login, playtest, publish, install).
+The `reddit/` folder wraps the game as a Reddit app (Devvit Web): playable right inside the post in the feed (taps only, the feed keeps scrolling), a ⛶ button for Reddit's full-screen view with keyboard controls, and a per-subreddit leaderboard stored in Redis under each player's Reddit username. The build copies the game files from this folder, so there is only one game to maintain. See [`reddit/DEVELOPING.md`](reddit/DEVELOPING.md) for the step-by-step guide (login, playtest, publish, install).
 
 ---
 

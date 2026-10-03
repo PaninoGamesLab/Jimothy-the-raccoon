@@ -16,8 +16,17 @@ const json = async (url, init) => {
   return res.json();
 };
 
-/** Reddit loads posts inline by default; anything unexpected counts as inline (the strict case). */
+/*
+ * Reddit's host script (devvit.v1.min.js) is inserted by the Devvit CLI at the
+ * very start of <head>, so it has run by now. Without it (the page opened from
+ * disk, or the host failed to load) there is no feed to protect and no
+ * expanded view to open: behave like the standalone page.
+ */
+const hasHost = typeof devvit !== 'undefined' && !!devvit;
+
+/** Inside Reddit, anything unexpected counts as inline (the strict case). */
 function readMode() {
+  if (!hasHost) return 'expanded';
   try {
     return getWebViewMode() === 'expanded' ? 'expanded' : 'inline';
   } catch (_) {
@@ -64,6 +73,8 @@ window.JimothyBackend = {
   onModeChange(cb) {
     listeners.push(cb);
   },
+  /** False when the Reddit host is missing: then there is no expanded view to open. */
+  canExpand: hasHost,
   /** Opens the game in Reddit's expanded view. Must be called from a trusted click. */
   expand(event) {
     requestExpandedMode(event, 'game');
