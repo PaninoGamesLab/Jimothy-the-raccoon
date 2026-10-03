@@ -146,6 +146,12 @@ Then visit `http://localhost:8080`.
 
 ---
 
+## 👾 Play it on Reddit
+
+The `reddit/` folder wraps the game as a Reddit app (Devvit Web): an inline post card with a Play button, the game in Reddit's expanded view, and a per-subreddit leaderboard stored in Redis under each player's Reddit username. The build copies the three game files from this folder, so there is only one game to maintain. See [`reddit/DEVELOPING.md`](reddit/DEVELOPING.md) for the step-by-step guide (login, playtest, publish, install).
+
+---
+
 ## 🛠 Tweaking the Game
 
 All the important numbers live in the `CONFIG` object at the top of `game.js`:

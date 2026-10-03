@@ -2898,6 +2898,9 @@
         btnStart: document.getElementById('btn-start'),
         btnMute: document.getElementById('btn-mute'),
         btnFull: document.getElementById('btn-fullscreen'),
+        board: document.getElementById('overlay-board'),
+        boardList: document.getElementById('overlay-board-list'),
+        boardMe: document.getElementById('overlay-board-me'),
         hudScore: document.getElementById('hud-score'),
         hudHigh: document.getElementById('hud-high'),
         hudItems: document.getElementById('hud-items'),
@@ -2930,6 +2933,12 @@
       this.highScore = parseInt(storage.get(CONFIG.STORAGE_HIGH, '0'), 10) || 0;
       this.hudCache = { score: -1, high: -1, items: -1 };
 
+      // Optional server backend (the Reddit build defines window.JimothyBackend):
+      // it owns the high score and a community leaderboard. Without it the
+      // high score lives in localStorage and the board stays hidden.
+      this.backend = window.JimothyBackend || null;
+      this.board = null;
+
       this.lastFrame = performance.now();
       this.running = true;
 
@@ -2938,8 +2947,69 @@
       this.updateMuteButton();
       this.showStartOverlay();
       this.updateHud(true);
+      if (this.backend) this.loadBackend();
 
       requestAnimationFrame((t) => this.frame(t));
+    }
+
+    /* ----- Backend: high score and leaderboard ----- */
+
+    async loadBackend() {
+      try {
+        const r = await this.backend.load();
+        this.applyBoard(r);
+      } catch (_) {
+        /* offline or logged out: localStorage keeps working */
+      }
+    }
+
+    submitScore() {
+      if (!this.backend || this.score <= 0) return;
+      this.backend
+        .submit(this.score, this.items)
+        .then((r) => this.applyBoard(r))
+        .catch(() => {});
+    }
+
+    applyBoard(r) {
+      if (!r || !Array.isArray(r.top)) return;
+      this.board = { top: r.top, me: r.me || null, username: r.username || null };
+      if (typeof r.best === 'number' && r.best > this.highScore) {
+        this.highScore = r.best;
+        storage.set(CONFIG.STORAGE_HIGH, this.highScore);
+        this.updateHud(true);
+      }
+      this.renderBoard();
+    }
+
+    /** Fills the leaderboard block of the overlay card (shown on game over). */
+    renderBoard() {
+      const d = this.dom;
+      if (!d.board || !d.boardList || !this.board) return;
+      d.boardList.textContent = '';
+      for (const e of this.board.top) {
+        const li = document.createElement('li');
+        const name = document.createElement('span');
+        name.className = 'board-name';
+        name.textContent = e.username;
+        const score = document.createElement('span');
+        score.className = 'board-score';
+        score.textContent = String(e.score);
+        li.append(name, score);
+        if (this.board.username && e.username === this.board.username) li.classList.add('me');
+        d.boardList.appendChild(li);
+      }
+      if (d.boardMe) {
+        const me = this.board.me;
+        if (me && me.rank) {
+          d.boardMe.textContent = `You: #${me.rank} of ${me.total} with ${me.score}`;
+        } else if (this.board.username) {
+          d.boardMe.textContent = 'Finish a run to get on the board.';
+        } else {
+          d.boardMe.textContent = 'Log in to Reddit to save your score.';
+        }
+        d.boardMe.hidden = false;
+      }
     }
 
     /* ----- Resize / DPR ----- */
@@ -3035,7 +3105,7 @@
     updateFullscreenButton() {
       const b = this.dom.btnFull;
       if (!b) return;
-      b.hidden = !this.fullscreenSupported;
+      b.hidden = !this.fullscreenSupported || !!this.backend;
       const on = this.isFullscreen;
       b.classList.toggle('active', on);
       b.setAttribute('aria-pressed', String(on));
@@ -3153,7 +3223,10 @@
       this.updateFullscreenButton();
 
       document.addEventListener('visibilitychange', () => {
-        if (document.hidden && this.state === STATE.PLAYING) this.pause();
+        if (document.hidden) {
+          if (this.state === STATE.PLAYING) this.pause();
+          if (this.audio.ctx && this.audio.ctx.state === 'running') this.audio.ctx.suspend().catch(() => {});
+        }
       });
       window.addEventListener('blur', () => {
         if (this.state === STATE.PLAYING) this.pause();
@@ -3274,6 +3347,7 @@
         storage.set(CONFIG.STORAGE_HIGH, this.highScore);
         this.audio.highScore();
       }
+      this.submitScore();
       this.updateHud(true);
     }
 
@@ -3317,6 +3391,7 @@
       d.btnStart.textContent = button;
       d.stats.hidden = !stats;
       d.record.hidden = !(stats && this.isNewRecord);
+      if (d.board) d.board.hidden = !(stats && this.board);
       if (stats) {
         d.finalScore.textContent = String(this.score);
         d.finalItems.textContent = String(this.items);

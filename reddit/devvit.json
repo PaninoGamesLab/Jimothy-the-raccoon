@@ -1,0 +1,41 @@
+{
+  "$schema": "https://developers.reddit.com/schema/config-file.v1.json",
+  "name": "jimothy-raccoon-run",
+  "post": {
+    "dir": "public",
+    "entrypoints": {
+      "default": {
+        "entry": "splash.html",
+        "height": "regular"
+      },
+      "game": {
+        "entry": "game.html"
+      }
+    }
+  },
+  "server": {
+    "dir": "dist/server",
+    "entry": "index.cjs"
+  },
+  "permissions": {
+    "redis": true
+  },
+  "menu": {
+    "items": [
+      {
+        "label": "[Jimothy] New game post",
+        "description": "Create a Jimothy, the Raccoon game post in this subreddit.",
+        "location": "subreddit",
+        "forUserType": "moderator",
+        "endpoint": "/internal/menu/new-post"
+      }
+    ]
+  },
+  "triggers": {
+    "onAppInstall": "/internal/on/app/install"
+  },
+  "scripts": {
+    "build": "npm run build",
+    "dev": "npm run watch"
+  }
+}
