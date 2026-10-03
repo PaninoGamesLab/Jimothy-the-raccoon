@@ -441,9 +441,42 @@ body {
   color: var(--cocoa);
 }
 
-/* With a leaderboard on the card, the control hints give way to it */
+/* With a leaderboard on the card, the control hints give way to it and spacing tightens */
 .overlay-card.has-board .overlay-controls {
   display: none;
+}
+
+.overlay-card.has-board {
+  padding-top: 14px;
+  padding-bottom: 16px;
+}
+
+.overlay-card.has-board .overlay-kicker {
+  margin-bottom: 2px;
+}
+
+.overlay-card.has-board .overlay-title {
+  margin-bottom: 4px;
+}
+
+.overlay-card.has-board .overlay-sub {
+  margin-bottom: 10px;
+}
+
+.overlay-card.has-board .overlay-stats {
+  margin-bottom: 8px;
+}
+
+.overlay-card.has-board .overlay-board {
+  margin-bottom: 10px;
+}
+
+.overlay-card.has-board .overlay-board-list {
+  max-height: 100px;
+}
+
+.overlay-card.has-board .overlay-board-me {
+  margin-top: 6px;
 }
 
 /* ---------- Buttons ---------- */
